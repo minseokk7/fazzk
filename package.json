@@ -15,7 +15,7 @@
     "asar": false,
     "win": {
       "target": "nsis",
-      "icon": "public/fazzk_icon.png"
+      "icon": "public/dodoroi_icon.png"
     },
     "files": [
       "**/*",

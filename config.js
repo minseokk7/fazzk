@@ -19,7 +19,7 @@ module.exports = {
         userData: app.getPath('userData'),
         pages: path.join(app.getAppPath(), 'pages'),
         public: path.join(app.getAppPath(), 'public'),
-        icon: path.join(app.getAppPath(), 'public', 'fazzk_icon.png'),
+        icon: path.join(app.getAppPath(), 'public', 'dodoroi_icon.png'),
         preload: path.join(app.getAppPath(), 'preload.js')
     },
     isProduction
