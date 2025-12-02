@@ -372,34 +372,55 @@
                         console.log('[init] OBS-MODE');
                     }
 
-                    this.loadSettings();
+                    await this.loadSettings();
                     this.applyStyles();
                     this.startPolling();
                 },
 
-                loadSettings() {
-                    const s = localStorage;
-                    if (s.getItem('volume')) this.volume = parseFloat(s.getItem('volume'));
-                    if (s.getItem('pollingInterval')) this.pollingInterval = parseInt(s.getItem('pollingInterval'));
-                    if (s.getItem('enableTTS')) this.enableTTS = s.getItem('enableTTS') === 'true';
-                    if (s.getItem('customSoundPath')) this.customSoundPath = s.getItem('customSoundPath');
-                    if (s.getItem('animationType')) this.animationType = s.getItem('animationType');
-                    if (s.getItem('textColor')) this.textColor = s.getItem('textColor');
-                    if (s.getItem('textSize')) this.textSize = parseInt(s.getItem('textSize'));
+                async loadSettings() {
+                    try {
+                        const response = await fetch('/settings');
+                        const settings = await response.json();
+
+                        if (settings.volume !== undefined) this.volume = parseFloat(settings.volume);
+                        if (settings.pollingInterval !== undefined) this.pollingInterval = parseInt(settings.pollingInterval);
+                        if (settings.enableTTS !== undefined) this.enableTTS = settings.enableTTS;
+                        if (settings.customSoundPath !== undefined) this.customSoundPath = settings.customSoundPath;
+                        if (settings.animationType !== undefined) this.animationType = settings.animationType;
+                        if (settings.textColor !== undefined) this.textColor = settings.textColor;
+                        if (settings.textSize !== undefined) this.textSize = parseInt(settings.textSize);
+
+                        console.log('[Settings] Loaded:', settings);
+                    } catch (error) {
+                        console.error('[Settings] Load failed:', error);
+                    }
                 },
 
-                saveSettings() {
-                    const s = localStorage;
-                    s.setItem('volume', this.volume);
-                    s.setItem('pollingInterval', this.pollingInterval);
-                    s.setItem('enableTTS', this.enableTTS);
-                    if (this.customSoundPath) s.setItem('customSoundPath', this.customSoundPath);
-                    s.setItem('animationType', this.animationType);
-                    s.setItem('textColor', this.textColor);
-                    s.setItem('textSize', this.textSize);
+                async saveSettings() {
+                    const settings = {
+                        volume: this.volume,
+                        pollingInterval: this.pollingInterval,
+                        enableTTS: this.enableTTS,
+                        customSoundPath: this.customSoundPath,
+                        animationType: this.animationType,
+                        textColor: this.textColor,
+                        textSize: this.textSize
+                    };
 
-                    this.applyStyles();
-                    this.showSettings = false;
+                    try {
+                        await fetch('/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(settings)
+                        });
+                        console.log('[Settings] Saved:', settings);
+
+                        this.applyStyles();
+                        this.showSettings = false;
+                    } catch (error) {
+                        console.error('[Settings] Save failed:', error);
+                        alert('설정 저장에 실패했습니다.');
+                    }
                 },
 
                 applyStyles() {
@@ -438,6 +459,8 @@
                 },
 
                 async pollLoop() {
+                    await this.loadSettings();
+                    this.applyStyles();
                     await this.fetchFollowers(false);
                     this.scheduleNextPoll();
                 },
