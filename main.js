@@ -111,121 +111,137 @@ ipcMain.handle('get-app-config', () => {
     };
 });
 
-// App Lifecycle
-app.whenReady().then(async () => {
-    console.log('[App] Ready');
+// Single Instance Lock
+const gotTheLock = app.requestSingleInstanceLock();
 
-    // Use the persistent session
-    const appSession = session.fromPartition('persist:chzzk');
-    await appSession.cookies.flushStore();
-
-
-
-    // Create the browser window
-    mainWindow = new BrowserWindow({
-        width: 1024,
-        height: 768,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            enableRemoteModule: false,
-            sandbox: true,
-            preload: config.paths.preload,
-            webSecurity: true,
-            partition: 'persist:chzzk' // Ensure persistent session storage
-        },
-        icon: config.paths.icon
-    });
-
-    mainWindow.on('close', (event) => {
-        if (!app.isQuitting) {
-            event.preventDefault();
-            mainWindow.hide();
+if (!gotTheLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, we should focus our window.
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
         }
     });
 
-    // Start at the start page or notifier if logged in
-    const sessionLoaded = await auth.loadSessionData();
-    let loaded = false;
+    // App Lifecycle
+    app.whenReady().then(async () => {
+        console.log('[App] Ready');
 
-    if (sessionLoaded) {
-        try {
-            console.log('[App] Validating session...');
-            const profileId = await chzzk.getProfileId();
-            console.log('[App] Session valid. Profile:', profileId);
-            mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/notifier.html`);
-            loaded = true;
-        } catch (e) {
-            console.error('[App] Session invalid or expired:', e.message);
-            // Session cleared in chzzk.js if 401/403
+        // Use the persistent session
+        const appSession = session.fromPartition('persist:chzzk');
+        await appSession.cookies.flushStore();
+
+
+
+        // Create the browser window
+        mainWindow = new BrowserWindow({
+            width: 1024,
+            height: 768,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                enableRemoteModule: false,
+                sandbox: true,
+                preload: config.paths.preload,
+                webSecurity: true,
+                partition: 'persist:chzzk' // Ensure persistent session storage
+            },
+            icon: config.paths.icon
+        });
+
+        mainWindow.on('close', (event) => {
+            if (!app.isQuitting) {
+                event.preventDefault();
+                mainWindow.hide();
+            }
+        });
+
+        // Start at the start page or notifier if logged in
+        const sessionLoaded = await auth.loadSessionData();
+        let loaded = false;
+
+        if (sessionLoaded) {
+            try {
+                console.log('[App] Validating session...');
+                const profileId = await chzzk.getProfileId();
+                console.log('[App] Session valid. Profile:', profileId);
+                mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/notifier.html`);
+                loaded = true;
+            } catch (e) {
+                console.error('[App] Session invalid or expired:', e.message);
+                // Session cleared in chzzk.js if 401/403
+            }
         }
-    }
 
-    if (!loaded) {
-        console.log('[App] No valid session, loading start page.');
-        mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/start.html`);
-    }
-
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            // Re-create window logic if needed, for now just basic
-            mainWindow = new BrowserWindow({
-                width: 1024,
-                height: 768,
-                webPreferences: {
-                    nodeIntegration: false,
-                    contextIsolation: true,
-                    enableRemoteModule: false,
-                    sandbox: true,
-                    preload: config.paths.preload,
-                    webSecurity: true
-                },
-                icon: config.paths.icon
-            });
+        if (!loaded) {
+            console.log('[App] No valid session, loading start page.');
             mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/start.html`);
         }
-    });
 
-    // Tray
-    const icon = nativeImage.createFromPath(config.paths.icon);
-    tray = new Tray(icon);
-    const contextMenu = Menu.buildFromTemplate([
-        {
-            label: '알림 보기',
-            click: () => {
-                if (mainWindow) {
+        app.on('activate', () => {
+            if (BrowserWindow.getAllWindows().length === 0) {
+                // Re-create window logic if needed, for now just basic
+                mainWindow = new BrowserWindow({
+                    width: 1024,
+                    height: 768,
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true,
+                        enableRemoteModule: false,
+                        sandbox: true,
+                        preload: config.paths.preload,
+                        webSecurity: true
+                    },
+                    icon: config.paths.icon
+                });
+                mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/start.html`);
+            }
+        });
+
+        // Tray
+        const icon = nativeImage.createFromPath(config.paths.icon);
+        tray = new Tray(icon);
+        const contextMenu = Menu.buildFromTemplate([
+            {
+                label: '알림 보기',
+                click: () => {
+                    if (mainWindow) {
+                        mainWindow.show();
+                        mainWindow.focus();
+                    }
+                }
+            },
+            { type: 'separator' },
+            {
+                label: '종료',
+                click: () => {
+                    app.isQuitting = true;
+                    app.quit();
+                }
+            }
+        ]);
+
+        tray.setToolTip('Fazzk');
+        tray.setContextMenu(contextMenu);
+
+        tray.on('click', () => {
+            if (mainWindow) {
+                if (mainWindow.isVisible()) {
+                    mainWindow.hide();
+                } else {
                     mainWindow.show();
                     mainWindow.focus();
                 }
             }
-        },
-        { type: 'separator' },
-        {
-            label: '종료',
-            click: () => {
-                app.isQuitting = true;
-                app.quit();
-            }
-        }
-    ]);
+        });
+    });
 
-    tray.setToolTip('Fazzk');
-    tray.setContextMenu(contextMenu);
-
-    tray.on('click', () => {
-        if (mainWindow) {
-            if (mainWindow.isVisible()) {
-                mainWindow.hide();
-            } else {
-                mainWindow.show();
-                mainWindow.focus();
-            }
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin') {
+            app.quit();
         }
     });
-});
-
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
-});
+}
