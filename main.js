@@ -16,8 +16,6 @@ server.startServer(async (cookies) => {
     if (mainWindow) {
         console.log('[Main] Reloading to notifier page...');
         mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/notifier.html`);
-        mainWindow.show();
-        mainWindow.focus();
     }
 });
 
