@@ -9,7 +9,17 @@ let mainWindow;
 let tray = null;
 
 // Start Express Server
-server.startServer();
+server.startServer(async (cookies) => {
+    console.log('[Main] Received manual login cookies');
+    await auth.setManualCookies(cookies);
+
+    if (mainWindow) {
+        console.log('[Main] Reloading to notifier page...');
+        mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/notifier.html`);
+        mainWindow.show();
+        mainWindow.focus();
+    }
+});
 
 function createWindow() {
     // Navigate to login page

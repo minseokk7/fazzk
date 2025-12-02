@@ -142,6 +142,44 @@
         .help-content strong {
             color: #00ffa3;
         }
+
+        /* Manual Login Styles */
+        .manual-login-content {
+            margin-top: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 0 24px;
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.3s ease-out;
+            text-align: left;
+        }
+
+        .manual-login-content.show {
+            max-height: 400px;
+            padding: 24px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-family: monospace;
+        }
     </style>
 </head>
 
@@ -172,6 +210,26 @@
                 <li><strong>설정:</strong> 알림 화면 우측 상단의 톱니바퀴 아이콘을 클릭하여 TTS 및 알림 설정을 변경할 수 있습니다.</li>
             </ol>
         </div>
+
+        <div class="help-toggle" style="margin-top: 10px;">
+            <button class="toggle-btn" onclick="toggleManualLogin()"
+                style="font-size: 12px; padding: 8px 16px; opacity: 0.7;">
+                🔧 수동 로그인 (문제 해결용)
+            </button>
+        </div>
+
+        <div class="manual-login-content" id="manualLoginContent">
+            <div class="input-group">
+                <label>쿠키 JSON (확장프로그램에서 복사한 값)</label>
+                <textarea id="cookie_json" class="form-control" rows="5"
+                    placeholder='{"NID_AUT": "...", "NID_SES": "..."}'
+                    style="width:100%; padding:10px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:8px; font-family:monospace; resize:vertical;"></textarea>
+            </div>
+            <button class="login-btn" onclick="manualLogin()"
+                style="width:100%; padding:12px; font-size:16px; margin-top:10px;">
+                로그인 적용
+            </button>
+        </div>
     </div>
 
     <script>
@@ -198,6 +256,52 @@
                 window.electronAPI.startLogin();
             } else {
                 console.error('electronAPI not found');
+            }
+        }
+
+        let manualVisible = false;
+        function toggleManualLogin() {
+            const content = document.getElementById('manualLoginContent');
+            manualVisible = !manualVisible;
+            if (manualVisible) content.classList.add('show');
+            else content.classList.remove('show');
+        }
+
+        async function manualLogin() {
+            const jsonInput = document.getElementById('cookie_json').value.trim();
+
+            if (!jsonInput) {
+                alert('쿠키 JSON 값을 입력해주세요.');
+                return;
+            }
+
+            let cookies;
+            try {
+                cookies = JSON.parse(jsonInput);
+            } catch (e) {
+                alert('올바른 JSON 형식이 아닙니다. 확장프로그램에서 복사한 내용을 그대로 붙여넣어 주세요.');
+                return;
+            }
+
+            if (!cookies.NID_AUT || !cookies.NID_SES) {
+                alert('NID_AUT 또는 NID_SES 값이 누락되었습니다.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/auth/cookies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ NID_AUT: cookies.NID_AUT, NID_SES: cookies.NID_SES })
+                });
+
+                if (response.ok) {
+                    alert('로그인 정보가 적용되었습니다. 잠시 후 이동합니다.');
+                } else {
+                    alert('로그인 적용 실패. 다시 시도해주세요.');
+                }
+            } catch (error) {
+                alert('서버 통신 오류: ' + error.message);
             }
         }
     </script>

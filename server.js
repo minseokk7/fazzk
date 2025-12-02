@@ -28,8 +28,17 @@ function findAvailablePort(startPort) {
     });
 }
 
-async function startServer() {
+async function startServer(onLogin) {
     const app = express();
+
+    // CORS middleware to allow requests from Chrome Extension
+    app.use((req, res, next) => {
+        res.header("Access-Control-Allow-Origin", "*");
+        res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+        next();
+    });
+
+    app.use(express.json()); // Ensure JSON body parsing is enabled for POST
 
     // Find available port
     const port = await findAvailablePort(config.port);
@@ -198,6 +207,22 @@ async function startServer() {
         } catch (error) {
             console.error('[Server] Failed to save settings:', error);
             res.status(500).json({ error: 'Failed to save settings' });
+        }
+    });
+
+    app.post('/auth/cookies', async (req, res) => {
+        try {
+            const { NID_AUT, NID_SES } = req.body;
+            if (NID_AUT && NID_SES && onLogin) {
+                console.log('[Server] Received cookies from extension');
+                await onLogin({ NID_AUT, NID_SES });
+                res.json({ success: true });
+            } else {
+                res.status(400).json({ error: 'Missing cookies or handler' });
+            }
+        } catch (error) {
+            console.error('[Server] Failed to process cookies:', error);
+            res.status(500).json({ error: 'Internal server error' });
         }
     });
 

@@ -155,6 +155,31 @@ async function getAuthCookies() {
     };
 }
 
+async function setManualCookies(cookieData) {
+    console.log('[Auth] Setting manual cookies...');
+    const currentSession = session.fromPartition('persist:chzzk');
+    const domain = '.naver.com';
+    const now = Date.now() / 1000;
+    const expirationDate = now + (60 * 60 * 24 * 365); // 1 year
+
+    const cookiesToSet = [
+        { url: 'https://naver.com', name: 'NID_AUT', value: cookieData.NID_AUT, domain: domain, path: '/', secure: true, httpOnly: true, expirationDate },
+        { url: 'https://naver.com', name: 'NID_SES', value: cookieData.NID_SES, domain: domain, path: '/', secure: true, httpOnly: true, expirationDate }
+    ];
+
+    for (const cookie of cookiesToSet) {
+        try {
+            await currentSession.cookies.set(cookie);
+            console.log(`[Auth] Set cookie: ${cookie.name}`);
+        } catch (error) {
+            console.error(`[Auth] Failed to set cookie ${cookie.name}:`, error);
+        }
+    }
+
+    await saveSessionData();
+    return true;
+}
+
 module.exports = {
     saveSessionData,
     loadSessionData,
@@ -162,5 +187,6 @@ module.exports = {
     getAllCookies,
     getCookiesForDomain,
     getAuthCookies,
+    setManualCookies,
     store // Exporting store if needed elsewhere, though preferably not
 };

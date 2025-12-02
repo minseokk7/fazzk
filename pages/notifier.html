@@ -338,6 +338,10 @@
         .obs-mode .test-btn {
             display: none !important;
         }
+
+        body.obs-mode {
+            background: transparent !important;
+        }
     </style>
 
     <!-- Scripts -->
@@ -473,6 +477,14 @@
                         const resData = await response.json();
                         const followers = resData.content.data;
 
+                        // Sync knownFollowers with current list (handle unfollows)
+                        const currentHashes = new Set(followers.map(f => f.user.userIdHash));
+                        this.knownFollowers.forEach(hash => {
+                            if (!currentHashes.has(hash)) {
+                                this.knownFollowers.delete(hash);
+                            }
+                        });
+
                         if (isInitial) {
                             followers.forEach(f => this.knownFollowers.add(f.user.userIdHash));
                             console.log('[fetch] Initial:', this.knownFollowers.size);
@@ -579,9 +591,9 @@
             <p><strong>1. OBS 설정:</strong></p>
             <p>OBS 소스 목록에서 <code>브라우저</code> 소스를 추가하세요.</p>
             <p>URL에 아래 주소를 입력하세요:</p>
-            <code
-                style="background:rgba(255,255,255,0.1); padding:4px; border-radius:4px; display:block; margin:5px 0;">http://localhost:3000/follower?obs=true</code>
-            <p style="font-size:0.9rem; color:#aaa;">(포트 번호가 다를 수 있습니다. 프로그램 실행 시 표시되는 주소를 확인하세요.)</p>
+            <code x-text="`http://${window.location.host}/follower?obs=true`"
+                style="background:rgba(255,255,255,0.1); padding:4px; border-radius:4px; display:block; margin:5px 0;"></code>
+            <p style="font-size:0.9rem; color:#aaa;">(현재 실행 중인 포트가 자동으로 표시됩니다. 이 주소를 복사해서 사용하세요.)</p>
 
             <p><strong>2. 알림 설정:</strong></p>
             <p>우측 하단 ⚙️ 버튼을 눌러 알림음, 볼륨, 텍스트 색상 등을 설정할 수 있습니다.</p>

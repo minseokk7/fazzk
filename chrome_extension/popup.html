@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            width: 250px;
+            padding: 15px;
+            background: #1e1e1e;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #00ffa3;
+        }
+
+        .status {
+            margin: 15px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #00ffa3;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        .secondary {
+            background: #444;
+            color: #ddd;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Fazzk Helper</h2>
+    <div class="status" id="status">
+        자동 동기화 대기 중...
+    </div>
+    <button id="sendBtn">지금 앱으로 전송</button>
+    <button id="copyBtn" class="secondary">클립보드에 복사</button>
+    <script src="popup.js"></script>
+</body>
+
+</html>
