@@ -13,6 +13,11 @@
     "appId": "com.dodoroi.fazzk",
     "productName": "Fazzk",
     "asar": false,
+    "publish": {
+      "provider": "github",
+      "owner": "minseok7891",
+      "repo": "fazzk"
+    },
     "win": {
       "target": "nsis",
       "icon": "public/dodoroi_icon.png"
@@ -30,7 +35,9 @@
   },
   "dependencies": {
     "axios": "^1.7.7",
+    "dotenv": "^17.2.3",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.6.2",
     "express": "^4.21.0",
     "jimp": "^0.22.12"
   }

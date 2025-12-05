@@ -180,6 +180,79 @@ async function setManualCookies(cookieData) {
     return true;
 }
 
+// 세션 모니터 관련 변수
+let sessionMonitorInterval = null;
+let sessionExpiryCallback = null;
+
+/**
+ * 세션 만료 시간 확인
+ */
+async function getSessionExpiryTime() {
+    const cookies = await getAllCookies();
+    const authCookies = cookies.filter(c => c.name === 'NID_AUT' || c.name === 'NID_SES');
+
+    if (authCookies.length === 0) return null;
+
+    // 가장 빨리 만료되는 쿠키 찾기
+    let earliestExpiry = Infinity;
+    authCookies.forEach(cookie => {
+        if (cookie.expirationDate && cookie.expirationDate < earliestExpiry) {
+            earliestExpiry = cookie.expirationDate;
+        }
+    });
+
+    return earliestExpiry === Infinity ? null : earliestExpiry * 1000; // ms로 변환
+}
+
+/**
+ * 세션 만료 임박 여부 확인 (1시간 내)
+ */
+async function isSessionExpiringSoon(hoursThreshold = 1) {
+    const expiryTime = await getSessionExpiryTime();
+    if (!expiryTime) return false;
+
+    const now = Date.now();
+    const threshold = hoursThreshold * 60 * 60 * 1000;
+
+    return (expiryTime - now) < threshold;
+}
+
+/**
+ * 세션 모니터 시작
+ * @param {Function} onExpiringSoon - 만료 임박 시 콜백
+ */
+function startSessionMonitor(onExpiringSoon) {
+    sessionExpiryCallback = onExpiringSoon;
+
+    // 10분마다 세션 체크 및 저장
+    sessionMonitorInterval = setInterval(async () => {
+        console.log('[Auth] 세션 모니터 실행...');
+
+        // 세션 데이터 저장
+        await saveSessionData();
+
+        // 만료 임박 확인
+        const expiringSoon = await isSessionExpiringSoon(1);
+        if (expiringSoon && sessionExpiryCallback) {
+            console.log('[Auth] 세션 만료 임박!');
+            sessionExpiryCallback();
+        }
+    }, 10 * 60 * 1000); // 10분
+
+    console.log('[Auth] 세션 모니터 시작됨');
+}
+
+/**
+ * 세션 모니터 중지
+ */
+function stopSessionMonitor() {
+    if (sessionMonitorInterval) {
+        clearInterval(sessionMonitorInterval);
+        sessionMonitorInterval = null;
+        console.log('[Auth] 세션 모니터 중지됨');
+    }
+}
+
 module.exports = {
     saveSessionData,
     loadSessionData,
@@ -188,5 +261,9 @@ module.exports = {
     getCookiesForDomain,
     getAuthCookies,
     setManualCookies,
-    store // Exporting store if needed elsewhere, though preferably not
+    getSessionExpiryTime,
+    isSessionExpiringSoon,
+    startSessionMonitor,
+    stopSessionMonitor,
+    store
 };

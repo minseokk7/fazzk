@@ -4,6 +4,7 @@ const config = require('./config');
 const auth = require('./auth');
 const chzzk = require('./chzzk');
 const server = require('./server');
+const updater = require('./updater');
 
 let mainWindow;
 let tray = null;
@@ -160,6 +161,12 @@ if (!gotTheLock) {
             }
         });
 
+        // 업데이터 초기화 및 자동 업데이트 확인
+        updater.initUpdater(mainWindow);
+        setTimeout(() => {
+            updater.checkForUpdates();
+        }, 3000); // 앱 시작 3초 후 업데이트 확인
+
         // Start at the start page or notifier if logged in
         const sessionLoaded = await auth.loadSessionData();
         let loaded = false;
@@ -171,6 +178,12 @@ if (!gotTheLock) {
                 console.log('[App] Session valid. Profile:', profileId);
                 mainWindow.loadURL(`http://localhost:${config.runtimePort || config.port}/pages/notifier.html`);
                 loaded = true;
+
+                // 세션 모니터 시작
+                auth.startSessionMonitor(() => {
+                    // 만료 임박 시 렌더러에 알림
+                    mainWindow.webContents.send('session-expiring-soon');
+                });
             } catch (e) {
                 console.error('[App] Session invalid or expired:', e.message);
                 // Session cleared in chzzk.js if 401/403
@@ -213,6 +226,12 @@ if (!gotTheLock) {
                         mainWindow.show();
                         mainWindow.focus();
                     }
+                }
+            },
+            {
+                label: '업데이트 확인',
+                click: () => {
+                    updater.checkForUpdates();
                 }
             },
             { type: 'separator' },

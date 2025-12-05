@@ -370,6 +370,10 @@
             background: linear-gradient(90deg, #00c853, #00e676);
         }
 
+        .session-banner.warning {
+            background: linear-gradient(90deg, #ff9800, #ffb74d);
+        }
+
         .session-banner button {
             background: white;
             color: #ff5555;
@@ -475,6 +479,9 @@
                 showHelp: false,
                 showHistory: false,
                 sessionError: false,
+                isReconnecting: false,
+                reconnectAttempts: 0,
+                maxReconnectAttempts: 5,
                 history: [],
 
                 // Settings
@@ -598,10 +605,15 @@
                         if (!response.ok) {
                             if (response.status === 401) {
                                 this.sessionError = true;
+                                this.startReconnect();
                             }
                             return;
                         }
+
+                        // 연결 성공 시 상태 초기화
                         this.sessionError = false;
+                        this.isReconnecting = false;
+                        this.reconnectAttempts = 0;
 
                         const resData = await response.json();
                         const followers = resData.content.data;
@@ -629,8 +641,29 @@
                             this.processQueue();
                         }
                     } catch (error) {
-                        // 네트워크 오류
+                        console.error('[Fetch] Network error:', error.message);
+                        this.startReconnect();
                     }
+                },
+
+                startReconnect() {
+                    if (this.isReconnecting) return;
+
+                    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                        console.log('[Reconnect] 최대 재연결 시도 횟수 초과');
+                        return;
+                    }
+
+                    this.isReconnecting = true;
+                    this.reconnectAttempts++;
+
+                    const delay = Math.min(5000 * this.reconnectAttempts, 30000);
+                    console.log(`[Reconnect] ${this.reconnectAttempts}번째 시도, ${delay / 1000}초 후 재연결...`);
+
+                    setTimeout(async () => {
+                        this.isReconnecting = false;
+                        await this.fetchFollowers(true);
+                    }, delay);
                 },
 
                 processQueue() {
@@ -698,10 +731,13 @@
 
 <body x-data="app">
     <!-- 세션 오류 배너 -->
-    <div class="session-banner" :class="sessionError ? 'error' : 'success'" x-cloak>
-        <span x-show="sessionError">⚠️ 세션이 만료되었습니다. 다시 로그인해 주세요.</span>
-        <span x-show="!sessionError">✅ 연결됨 - 팔로워 알림 대기 중</span>
-        <button x-show="sessionError" @click="window.electronAPI && window.electronAPI.startLogin()">로그인</button>
+    <div class="session-banner" :class="sessionError ? (isReconnecting ? 'warning' : 'error') : 'success'" x-cloak>
+        <span x-show="isReconnecting">🔄 재연결 중... (<span x-text="reconnectAttempts"></span>/<span
+                x-text="maxReconnectAttempts"></span>)</span>
+        <span x-show="sessionError && !isReconnecting">⚠️ 세션이 만료되었습니다. 다시 로그인해 주세요.</span>
+        <span x-show="!sessionError && !isReconnecting">✅ 연결됨 - 팔로워 알림 대기 중</span>
+        <button x-show="sessionError && !isReconnecting"
+            @click="window.electronAPI && window.electronAPI.startLogin()">로그인</button>
     </div>
 
     <!-- Notification Container -->
