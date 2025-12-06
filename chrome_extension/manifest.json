@@ -21,14 +21,6 @@
     },
     "action": {
         "default_popup": "popup.html",
-        "default_title": "Fazzk Helper",
-        "default_icon": {
-            "16": "icons/icon16.png",
-            "48": "icons/icon48.png"
-        }
-    },
-    "icons": {
-        "16": "icons/icon16.png",
-        "48": "icons/icon48.png"
+        "default_title": "Fazzk Helper"
     }
 }

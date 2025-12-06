@@ -24,20 +24,17 @@
     },
     "action": {
         "default_popup": "popup.html",
-        "default_title": "Fazzk Helper",
-        "default_icon": {
-            "16": "icons/icon16.png",
-            "48": "icons/icon48.png"
-        }
+        "default_title": "Fazzk Helper"
     },
     "browser_specific_settings": {
         "gecko": {
             "id": "fazzk@dodoroi.com",
-            "strict_min_version": "109.0"
+            "strict_min_version": "109.0",
+            "data_collection_permissions": {
+                "uses_user_data_for_ads": false,
+                "uses_user_data_for_other_purposes": false,
+                "uses_telemetry": false
+            }
         }
-    },
-    "icons": {
-        "16": "icons/icon16.png",
-        "48": "icons/icon48.png"
     }
 }
