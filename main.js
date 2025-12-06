@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, session, ipcMain, Tray, Menu, nativeImage, globalShortcut } = require('electron');
 const path = require('path');
 const config = require('./config');
 const auth = require('./auth');
@@ -167,6 +167,18 @@ if (!gotTheLock) {
             updater.checkForUpdates();
         }, 3000); // 앱 시작 3초 후 업데이트 확인
 
+        // 새로고침 단축키 등록 (F5, Ctrl+R)
+        globalShortcut.register('F5', () => {
+            if (mainWindow && mainWindow.webContents) {
+                mainWindow.webContents.reload();
+            }
+        });
+        globalShortcut.register('CommandOrControl+R', () => {
+            if (mainWindow && mainWindow.webContents) {
+                mainWindow.webContents.reload();
+            }
+        });
+
         // Start at the start page or notifier if logged in
         const sessionLoaded = await auth.loadSessionData();
         let loaded = false;
@@ -263,5 +275,10 @@ if (!gotTheLock) {
         if (process.platform !== 'darwin') {
             app.quit();
         }
+    });
+
+    app.on('will-quit', () => {
+        // 앱 종료 시 단축키 해제
+        globalShortcut.unregisterAll();
     });
 }
