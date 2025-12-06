@@ -279,6 +279,53 @@
         .theme-switch input:checked~.slider .cloud {
             opacity: 1;
         }
+
+        /* 업데이트 진행률 UI */
+        .update-banner {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(90deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 15px 20px;
+            text-align: center;
+            z-index: 10000;
+            display: none;
+            border-top: 1px solid rgba(0, 255, 163, 0.3);
+        }
+
+        .update-banner.show {
+            display: block;
+        }
+
+        .update-banner .update-text {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #00ffa3;
+        }
+
+        .update-progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .update-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ffa3 0%, #00cc82 100%);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .update-percent {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
     </style>
 </head>
 
@@ -414,7 +461,38 @@
                 alert('서버 통신 오류: ' + error.message);
             }
         }
+
+        // 업데이트 진행률 처리
+        if (window.electronAPI) {
+            window.electronAPI.onUpdateProgress((data) => {
+                const banner = document.getElementById('updateBanner');
+                const fill = document.getElementById('updateProgressFill');
+                const text = document.getElementById('updateText');
+                const percent = document.getElementById('updatePercent');
+
+                banner.classList.add('show');
+                fill.style.width = data.percent + '%';
+                text.textContent = '🚀 업데이트 다운로드 중...';
+                percent.textContent = Math.round(data.percent) + '%';
+            });
+
+            window.electronAPI.onUpdateDownloaded(() => {
+                const text = document.getElementById('updateText');
+                const percent = document.getElementById('updatePercent');
+                text.textContent = '✅ 업데이트 완료! 앱 재시작 시 적용됩니다.';
+                percent.textContent = '100%';
+            });
+        }
     </script>
+
+    <!-- 업데이트 진행률 배너 -->
+    <div id="updateBanner" class="update-banner">
+        <div id="updateText" class="update-text">🚀 업데이트 다운로드 중...</div>
+        <div class="update-progress-bar">
+            <div id="updateProgressFill" class="update-progress-fill"></div>
+        </div>
+        <div id="updatePercent" class="update-percent">0%</div>
+    </div>
 </body>
 
 </html>

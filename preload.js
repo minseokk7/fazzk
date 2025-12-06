@@ -20,7 +20,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Settings & Config
   selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
-  getAppConfig: () => ipcRenderer.invoke('get-app-config')
+  getAppConfig: () => ipcRenderer.invoke('get-app-config'),
+
+  // Update listeners
+  onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (_, data) => callback(data)),
+  onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (_, data) => callback(data)),
+  onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_, data) => callback(data)),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates')
 });
 
 // Log successful preload script loading
