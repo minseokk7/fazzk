@@ -14,27 +14,49 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --bg-color: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --container-bg: rgba(255, 255, 255, 0.1);
+            --container-border: rgba(255, 255, 255, 0.2);
+            --text-color: white;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --primary-color: #00ffa3;
+            --btn-text: #000;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --container-bg: rgba(30, 40, 45, 0.9);
+            --container-border: rgba(0, 255, 163, 0.3);
+            --text-color: #5ce1b0;
+            --text-secondary: #888;
+            --primary-color: #5ce1b0;
+            --btn-text: #1a1a1a;
+        }
+
         body {
             font-family: 'Pretendard', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--bg-color);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: var(--text-color);
             padding: 20px;
+            transition: background 0.3s ease;
         }
 
         .container {
             text-align: center;
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--container-bg);
             backdrop-filter: blur(10px);
             padding: 60px 80px;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid var(--container-border);
             max-width: 600px;
             width: 100%;
+            transition: all 0.3s ease;
         }
 
         h1 {
@@ -51,8 +73,8 @@
         }
 
         .login-btn {
-            background: #00ffa3;
-            color: #000;
+            background: var(--primary-color);
+            color: var(--btn-text);
             border: none;
             padding: 16px 48px;
             font-size: 18px;
@@ -65,7 +87,7 @@
         }
 
         .login-btn:hover {
-            background: #00dd88;
+            filter: brightness(0.9);
             transform: translateY(-2px);
             box-shadow: 0 12px 30px rgba(0, 255, 163, 0.6);
         }
@@ -83,9 +105,9 @@
         }
 
         .toggle-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--container-border);
+            color: var(--text-color);
             padding: 10px 24px;
             border-radius: 25px;
             cursor: pointer;
@@ -96,8 +118,8 @@
         }
 
         .toggle-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.2);
+            border-color: var(--primary-color);
         }
 
         .help-content {
@@ -332,7 +354,7 @@
 <body>
     <!-- 다크모드 토글 스위치 -->
     <label class="theme-switch" title="테마 변경">
-        <input type="checkbox" id="theme-checkbox" checked>
+        <input type="checkbox" id="theme-checkbox" onchange="toggleTheme(this)" checked>
         <span class="slider">
             <span class="star star_1"></span>
             <span class="star star_2"></span>
@@ -390,6 +412,33 @@
     </div>
 
     <script>
+        // 테마 토글 기능
+        function toggleTheme(checkbox) {
+            const html = document.documentElement;
+            if (checkbox.checked) {
+                html.removeAttribute('data-theme');
+                localStorage.setItem('fazzk-theme', 'light');
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                localStorage.setItem('fazzk-theme', 'dark');
+            }
+        }
+
+        // 저장된 테마 불러오기
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('fazzk-theme');
+            const checkbox = document.getElementById('theme-checkbox');
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                checkbox.checked = false;
+            } else {
+                checkbox.checked = true;
+            }
+        }
+
+        // 페이지 로드 시 테마 적용
+        loadTheme();
+
         let helpVisible = false;
 
         function toggleHelp() {
