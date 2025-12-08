@@ -50,7 +50,7 @@ function createWindow() {
     });
 
     // Monitor cookie changes
-    session.fromPartition('persist:chzzk').cookies.on('changed', async (event, cookie, cause, removed) => {
+    session.fromPartition(config.session.partition).cookies.on('changed', async (event, cookie, cause, removed) => {
         if (!removed) {
             if (cookie.name === 'NID_AUT' || cookie.name === 'NID_SES') {
                 logger.info('[Cookie] 인증 쿠키 변경됨. 세션 저장 중...');
@@ -131,15 +131,15 @@ if (!gotTheLock) {
         logger.info('[App] 준비 완료');
 
         // Use the persistent session
-        const appSession = session.fromPartition('persist:chzzk');
+        const appSession = session.fromPartition(config.session.partition);
         await appSession.cookies.flushStore();
 
 
 
         // Create the browser window
         mainWindow = new BrowserWindow({
-            width: 1024,
-            height: 768,
+            width: config.window.width,
+            height: config.window.height,
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,
@@ -147,7 +147,7 @@ if (!gotTheLock) {
                 sandbox: true,
                 preload: config.paths.preload,
                 webSecurity: true,
-                partition: 'persist:chzzk' // Ensure persistent session storage
+                partition: config.session.partition
             },
             icon: config.paths.icon
         });
@@ -218,8 +218,8 @@ if (!gotTheLock) {
             if (BrowserWindow.getAllWindows().length === 0) {
                 // Re-create window logic if needed, for now just basic
                 mainWindow = new BrowserWindow({
-                    width: 1024,
-                    height: 768,
+                    width: config.window.width,
+                    height: config.window.height,
                     webPreferences: {
                         nodeIntegration: false,
                         contextIsolation: true,

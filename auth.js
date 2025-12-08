@@ -20,7 +20,7 @@ async function saveSessionData() {
         }
         fs.accessSync(userDataPath, fs.constants.W_OK);
 
-        const currentSession = session.fromPartition('persist:chzzk');
+        const currentSession = session.fromPartition(config.session.partition);
         const cookies = await currentSession.cookies.get({});
 
         if (cookies.length === 0) {
@@ -86,7 +86,7 @@ async function loadSessionData() {
             logger.info(`[Auth] 잘못된 도메인 쿠키 ${sessionData.cookies.length - validCookies.length}개 필터됨`);
         }
 
-        const currentSession = session.fromPartition('persist:chzzk');
+        const currentSession = session.fromPartition(config.session.partition);
         let successCount = 0;
 
         for (const cookie of validCookies) {
@@ -121,7 +121,7 @@ function clearSessionData() {
 
 async function getAllCookies() {
     try {
-        return await session.fromPartition('persist:chzzk').cookies.get({});
+        return await session.fromPartition(config.session.partition).cookies.get({});
     } catch (error) {
         logger.error('[Auth] 모든 쿠키 가져오기 실패:', error);
         return [];
@@ -130,7 +130,7 @@ async function getAllCookies() {
 
 async function getCookiesForDomain(domain) {
     try {
-        return await session.fromPartition('persist:chzzk').cookies.get({ domain });
+        return await session.fromPartition(config.session.partition).cookies.get({ domain });
     } catch (error) {
         logger.error('[Auth] 도메인별 쿠키 가져오기 실패:', error);
         return [];

@@ -30,13 +30,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $env:GITHUB_OUTPUT
+      
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            dist/*.exe
+            dist/Fazzk Setup ${{ steps.version.outputs.VERSION }}.exe
             dist/latest.yml
-            dist/chrome_extension.zip
-            dist/firefox_extension.zip
+            dist/v${{ steps.version.outputs.VERSION }}/chrome-extension.zip
+            dist/v${{ steps.version.outputs.VERSION }}/firefox-extension.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
