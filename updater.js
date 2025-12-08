@@ -1,19 +1,30 @@
 /**
- * GitHub API 기반 업데이터 모듈
+ * @fileoverview GitHub API 기반 자동 업데이트 모듈
  * electron-updater 대신 GitHub API로 직접 버전 확인
+ * @module updater
  */
+
 const { ipcMain, shell } = require('electron');
 const https = require('https');
 const { version } = require('./package.json');
 const logger = require('./logger');
 
+/** @type {string} GitHub 저장소 소유자 */
 const GITHUB_OWNER = 'minseok7891';
+
+/** @type {string} GitHub 저장소 이름 */
 const GITHUB_REPO = 'fazzk';
 
+/**
+ * 메인 윈도우 참조
+ * @type {Electron.BrowserWindow|null}
+ */
 let mainWindow = null;
 
 /**
  * 업데이터 초기화
+ * @param {Electron.BrowserWindow} win - 메인 윈도우 인스턴스
+ * @returns {void}
  */
 function initUpdater(win) {
     mainWindow = win;
@@ -21,6 +32,8 @@ function initUpdater(win) {
 
 /**
  * GitHub에서 최신 릴리즈 정보 가져오기
+ * @async
+ * @returns {Promise<Object>} GitHub 릴리즈 객체
  */
 function getLatestRelease() {
     return new Promise((resolve, reject) => {
@@ -53,7 +66,10 @@ function getLatestRelease() {
 }
 
 /**
- * 버전 비교 (semver)
+ * Semantic Version 비교
+ * @param {string} v1 - 첫 번째 버전 (예: "v1.2.3")
+ * @param {string} v2 - 두 번째 버전 (예: "v1.2.4")
+ * @returns {number} v1 > v2이면 1, v1 < v2이면 -1, 같으면 0
  */
 function compareVersions(v1, v2) {
     const parts1 = v1.replace('v', '').split('.').map(Number);
@@ -67,7 +83,17 @@ function compareVersions(v1, v2) {
 }
 
 /**
+ * @typedef {Object} UpdateCheckResult
+ * @property {boolean} hasUpdate - 업데이트 가능 여부
+ * @property {string} [latestVersion] - 최신 버전 (업데이트 있을 시)
+ * @property {string} [downloadUrl] - 다운로드 URL (업데이트 있을 시)
+ * @property {string} [error] - 에러 메시지 (실패 시)
+ */
+
+/**
  * 업데이트 확인
+ * @async
+ * @returns {Promise<UpdateCheckResult>} 업데이트 확인 결과
  */
 async function checkForUpdates() {
     try {
@@ -76,7 +102,6 @@ async function checkForUpdates() {
         const currentVersion = `v${version}`;
 
         if (compareVersions(latestVersion, currentVersion) > 0) {
-            // 새 버전 있음
             const exeAsset = release.assets.find(a => a.name.endsWith('.exe'));
 
             if (mainWindow) {
@@ -105,7 +130,9 @@ async function checkForUpdates() {
 }
 
 /**
- * 다운로드 페이지 열기
+ * 외부 브라우저에서 다운로드 페이지 열기
+ * @param {string} url - 열 URL
+ * @returns {void}
  */
 function openDownloadPage(url) {
     shell.openExternal(url);

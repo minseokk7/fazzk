@@ -1,22 +1,21 @@
 /**
- * 로거 모듈
- * 개발/프로덕션 환경에 따라 조건부 로깅을 수행합니다.
- * 
- * 사용법:
- *   const logger = require('./logger');
- *   logger.info('[Module] 메시지');
- *   logger.warn('[Module] 경고 메시지');
- *   logger.error('[Module] 에러 메시지');
+ * @fileoverview 조건부 로깅 모듈
+ * 개발/프로덕션 환경에 따라 로그 출력을 제어합니다.
+ * @module logger
  */
 
 const config = require('./config');
 
-// 프로덕션 환경에서는 로그 출력 안 함
+/**
+ * 로깅 활성화 여부 (프로덕션에서는 비활성화)
+ * @type {boolean}
+ */
 const isEnabled = !config.isProduction;
 
 /**
  * 정보 로그 출력
  * @param {...any} args - 로그 인자들
+ * @returns {void}
  */
 function info(...args) {
     if (isEnabled) {
@@ -27,6 +26,7 @@ function info(...args) {
 /**
  * 경고 로그 출력
  * @param {...any} args - 로그 인자들
+ * @returns {void}
  */
 function warn(...args) {
     if (isEnabled) {
@@ -37,9 +37,9 @@ function warn(...args) {
 /**
  * 에러 로그 출력 (항상 출력)
  * @param {...any} args - 로그 인자들
+ * @returns {void}
  */
 function error(...args) {
-    // 에러는 항상 출력
     console.error(...args);
 }
 

@@ -1,14 +1,29 @@
+/**
+ * @fileoverview 인증 및 세션 관리 모듈
+ * 네이버 로그인 쿠키 저장/복원, 세션 모니터링, 자동 갱신 기능
+ * @module auth
+ */
+
 const { session } = require('electron');
 const Store = require('electron-store');
 const fs = require('fs');
 const config = require('./config');
 const logger = require('./logger');
 
+/**
+ * 암호화된 세션 저장소
+ * @type {Store}
+ */
 const store = new Store({
     name: 'session',
     encryptionKey: config.auth.encryptionKey
 });
 
+/**
+ * 현재 세션 데이터를 암호화하여 저장합니다.
+ * @async
+ * @returns {Promise<void>}
+ */
 async function saveSessionData() {
     const userDataPath = config.paths.userData;
 
