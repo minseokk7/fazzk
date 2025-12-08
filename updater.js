@@ -1,9 +1,13 @@
 /**
- * 자동 업데이트 모듈
- * GitHub Releases에서 새 버전을 확인하고 업데이트
+ * GitHub API 기반 업데이터 모듈
+ * electron-updater 대신 GitHub API로 직접 버전 확인
  */
-const { autoUpdater } = require('electron-updater');
-const { ipcMain, dialog } = require('electron');
+const { ipcMain, shell } = require('electron');
+const https = require('https');
+const { version } = require('./package.json');
+
+const GITHUB_OWNER = 'minseok7891';
+const GITHUB_REPO = 'fazzk';
 
 let mainWindow = null;
 
@@ -12,90 +16,107 @@ let mainWindow = null;
  */
 function initUpdater(win) {
     mainWindow = win;
+}
 
-    // 자동 다운로드 비활성화 (사용자 확인 후 다운로드)
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = true;
-
-    // 업데이트 확인 가능 시
-    autoUpdater.on('update-available', (info) => {
-        console.log('[Updater] 새 버전 발견:', info.version);
-
-        if (mainWindow) {
-            mainWindow.webContents.send('update-available', {
-                version: info.version,
-                releaseDate: info.releaseDate
-            });
-        }
-
-        // 사용자에게 다운로드 여부 확인
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: '업데이트 가능',
-            message: `새 버전 ${info.version}이 있습니다. 다운로드하시겠습니까?`,
-            buttons: ['예', '나중에'],
-            defaultId: 0
-        }).then(result => {
-            if (result.response === 0) {
-                autoUpdater.downloadUpdate();
+/**
+ * GitHub에서 최신 릴리즈 정보 가져오기
+ */
+function getLatestRelease() {
+    return new Promise((resolve, reject) => {
+        const options = {
+            hostname: 'api.github.com',
+            path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Fazzk-Updater',
+                'Accept': 'application/vnd.github.v3+json'
             }
-        });
-    });
+        };
 
-    // 업데이트 없음
-    autoUpdater.on('update-not-available', () => {
-        console.log('[Updater] 최신 버전입니다.');
-    });
-
-    // 다운로드 진행률
-    autoUpdater.on('download-progress', (progress) => {
-        console.log(`[Updater] 다운로드 중: ${Math.round(progress.percent)}%`);
-
-        if (mainWindow) {
-            mainWindow.webContents.send('update-progress', {
-                percent: progress.percent,
-                transferred: progress.transferred,
-                total: progress.total
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const release = JSON.parse(data);
+                    resolve(release);
+                } catch (e) {
+                    reject(e);
+                }
             });
-        }
-    });
-
-    // 다운로드 완료
-    autoUpdater.on('update-downloaded', () => {
-        console.log('[Updater] 다운로드 완료');
-
-        dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: '업데이트 준비 완료',
-            message: '업데이트가 다운로드되었습니다. 앱을 재시작하면 설치됩니다.',
-            buttons: ['지금 재시작', '나중에'],
-            defaultId: 0
-        }).then(result => {
-            if (result.response === 0) {
-                autoUpdater.quitAndInstall(false, true);
-            }
         });
-    });
 
-    // 오류 처리
-    autoUpdater.on('error', (error) => {
-        console.error('[Updater] 오류:', error.message);
+        req.on('error', reject);
+        req.end();
     });
+}
+
+/**
+ * 버전 비교 (semver)
+ */
+function compareVersions(v1, v2) {
+    const parts1 = v1.replace('v', '').split('.').map(Number);
+    const parts2 = v2.replace('v', '').split('.').map(Number);
+
+    for (let i = 0; i < 3; i++) {
+        if (parts1[i] > parts2[i]) return 1;
+        if (parts1[i] < parts2[i]) return -1;
+    }
+    return 0;
 }
 
 /**
  * 업데이트 확인
  */
-function checkForUpdates() {
-    console.log('[Updater] 업데이트 확인 중...');
-    autoUpdater.checkForUpdates().catch(err => {
-        console.error('[Updater] 확인 실패:', err.message);
-    });
+async function checkForUpdates() {
+    try {
+        const release = await getLatestRelease();
+        const latestVersion = release.tag_name;
+        const currentVersion = `v${version}`;
+
+        if (compareVersions(latestVersion, currentVersion) > 0) {
+            // 새 버전 있음
+            const exeAsset = release.assets.find(a => a.name.endsWith('.exe'));
+
+            if (mainWindow) {
+                mainWindow.webContents.send('update-available-github', {
+                    currentVersion: currentVersion,
+                    latestVersion: latestVersion,
+                    releaseNotes: release.body || '',
+                    downloadUrl: exeAsset ? exeAsset.browser_download_url : release.html_url,
+                    releaseUrl: release.html_url,
+                    publishedAt: release.published_at
+                });
+            }
+
+            return {
+                hasUpdate: true,
+                latestVersion,
+                downloadUrl: exeAsset ? exeAsset.browser_download_url : release.html_url
+            };
+        }
+
+        return { hasUpdate: false };
+    } catch (error) {
+        console.error('[Updater] 업데이트 확인 실패:', error.message);
+        return { hasUpdate: false, error: error.message };
+    }
+}
+
+/**
+ * 다운로드 페이지 열기
+ */
+function openDownloadPage(url) {
+    shell.openExternal(url);
 }
 
 // IPC 핸들러
-ipcMain.handle('check-for-updates', () => {
-    checkForUpdates();
+ipcMain.handle('check-for-updates', async () => {
+    return await checkForUpdates();
+});
+
+ipcMain.handle('open-download-page', (_, url) => {
+    openDownloadPage(url);
 });
 
 module.exports = {

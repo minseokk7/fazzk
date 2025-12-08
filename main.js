@@ -196,6 +196,12 @@ if (!gotTheLock) {
                     // 만료 임박 시 렌더러에 알림
                     mainWindow.webContents.send('session-expiring-soon');
                 });
+
+                // 세션 자동 갱신 시작
+                auth.startAutoRefresh((errorMsg) => {
+                    // 갱신 실패 시 렌더러에 알림
+                    mainWindow.webContents.send('session-refresh-failed', errorMsg);
+                });
             } catch (e) {
                 console.error('[App] Session invalid or expired:', e.message);
                 // Session cleared in chzzk.js if 401/403

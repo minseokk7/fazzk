@@ -139,7 +139,7 @@ async function getCookiesForDomain(domain) {
 async function getAuthCookies() {
     const allCookies = await getAllCookies();
     const authCookies = allCookies.reduce((acc, obj) => {
-        if (obj.name === "NID_AUT" || obj.name === "NID_SES") {
+        if (obj.name === 'NID_AUT' || obj.name === 'NID_SES') {
             acc[obj.name] = obj.value;
         }
         return acc;
@@ -249,7 +249,83 @@ function stopSessionMonitor() {
     if (sessionMonitorInterval) {
         clearInterval(sessionMonitorInterval);
         sessionMonitorInterval = null;
-        console.log('[Auth] 세션 모니터 중지됨');
+    }
+}
+
+// 자동 갱신 관련 변수
+let autoRefreshTimeout = null;
+
+/**
+ * 세션 갱신 시도
+ * 현재 쿠키로 API 호출하여 세션 유효성 검증
+ */
+async function refreshSession() {
+    try {
+        const authCookies = await getAuthCookies();
+        const axios = require('axios');
+
+        // Chzzk API로 세션 유효성 검증
+        const response = await axios.get('https://api.chzzk.naver.com/service/v1/user', {
+            headers: {
+                'Cookie': `NID_AUT=${authCookies.NID_AUT}; NID_SES=${authCookies.NID_SES}`,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
+        if (response.status === 200 && response.data.code === 200) {
+            // 세션 유효 - 쿠키 저장하여 만료 시간 갱신
+            await saveSessionData();
+            return { success: true, message: '세션 갱신 성공' };
+        }
+
+        return { success: false, message: '세션 검증 실패' };
+    } catch (error) {
+        return { success: false, message: error.message };
+    }
+}
+
+/**
+ * 자동 갱신 시작
+ * 세션 만료 1시간 전에 자동으로 갱신 시도
+ * @param {Function} onRefreshFailed - 갱신 실패 시 콜백
+ */
+async function startAutoRefresh(onRefreshFailed) {
+    // 기존 타이머 정리
+    if (autoRefreshTimeout) {
+        clearTimeout(autoRefreshTimeout);
+    }
+
+    const expiryTime = await getSessionExpiryTime();
+    if (!expiryTime) {
+        return;
+    }
+
+    const now = Date.now();
+    const refreshTime = expiryTime - (60 * 60 * 1000); // 만료 1시간 전
+    const delay = Math.max(refreshTime - now, 60000); // 최소 1분 후
+
+    autoRefreshTimeout = setTimeout(async () => {
+        const result = await refreshSession();
+
+        if (result.success) {
+            // 다음 갱신 스케줄링
+            startAutoRefresh(onRefreshFailed);
+        } else {
+            // 갱신 실패 시 콜백 호출
+            if (onRefreshFailed) {
+                onRefreshFailed(result.message);
+            }
+        }
+    }, delay);
+}
+
+/**
+ * 자동 갱신 중지
+ */
+function stopAutoRefresh() {
+    if (autoRefreshTimeout) {
+        clearTimeout(autoRefreshTimeout);
+        autoRefreshTimeout = null;
     }
 }
 
@@ -265,5 +341,8 @@ module.exports = {
     isSessionExpiringSoon,
     startSessionMonitor,
     stopSessionMonitor,
+    refreshSession,
+    startAutoRefresh,
+    stopAutoRefresh,
     store
 };

@@ -4,19 +4,19 @@ const archiver = require('archiver');
 const packageJson = require('../package.json');
 
 const version = packageJson.version;
-const outputDir = path.join(__dirname, '../dist');
+const versionDir = path.join(__dirname, `../dist/v${version}`);
 const extensionDir = path.join(__dirname, '../chrome_extension');
 
-// dist 디렉토리 확인/생성
-if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+// 버전별 디렉토리 확인/생성
+if (!fs.existsSync(versionDir)) {
+    fs.mkdirSync(versionDir, { recursive: true });
 }
 
 // Chrome 확장프로그램 zip 생성
 function buildChromeExtension() {
     return new Promise((resolve, reject) => {
-        const outputFilename = `fazzk-extension-v${version}.zip`;
-        const outputPath = path.join(outputDir, outputFilename);
+        const outputFilename = 'chrome-extension.zip';
+        const outputPath = path.join(versionDir, outputFilename);
 
         const output = fs.createWriteStream(outputPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
@@ -51,8 +51,8 @@ function buildChromeExtension() {
 // Firefox 확장프로그램 zip 생성
 function buildFirefoxExtension() {
     return new Promise((resolve, reject) => {
-        const outputFilename = `fazzk-extension-firefox-v${version}.zip`;
-        const outputPath = path.join(outputDir, outputFilename);
+        const outputFilename = 'firefox-extension.zip';
+        const outputPath = path.join(versionDir, outputFilename);
 
         const output = fs.createWriteStream(outputPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
@@ -90,11 +90,36 @@ function buildFirefoxExtension() {
     });
 }
 
+// Electron 앱 파일을 버전 폴더로 이동
+function moveElectronApp() {
+    const distDir = path.join(__dirname, '../dist');
+    const appFiles = [
+        `Fazzk Setup ${version}.exe`,
+        `Fazzk Setup ${version}.exe.blockmap`
+    ];
+
+    let moved = 0;
+    for (const file of appFiles) {
+        const src = path.join(distDir, file);
+        const dest = path.join(versionDir, file);
+        if (fs.existsSync(src)) {
+            fs.renameSync(src, dest);
+            moved++;
+        }
+    }
+
+    if (moved > 0) {
+        console.log(`✅ Electron 앱: v${version} 폴더로 이동 (${moved}개 파일)`);
+    }
+}
+
 // 빌드 실행
 async function build() {
-    console.log('🔧 확장프로그램 빌드 시작...\n');
+    console.log(`🔧 v${version} 빌드 시작...\n`);
+    console.log(`📁 출력 폴더: dist/v${version}/\n`);
     await buildChromeExtension();
     await buildFirefoxExtension();
+    moveElectronApp();
     console.log('\n✨ 빌드 완료!');
 }
 

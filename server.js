@@ -36,9 +36,9 @@ async function startServer(onLogin) {
         const allowedOrigins = ['http://localhost', 'http://127.0.0.1'];
         const origin = req.headers.origin;
         if (origin && allowedOrigins.some(allowed => origin.startsWith(allowed))) {
-            res.header("Access-Control-Allow-Origin", origin);
+            res.header('Access-Control-Allow-Origin', origin);
         }
-        res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
         next();
     });
 
@@ -165,7 +165,7 @@ async function startServer(onLogin) {
             // Construct response manually since followerData might be undefined if API failed
             return res.json({
                 code: 200,
-                message: "Success",
+                message: 'Success',
                 content: {
                     page: 0,
                     size: 10,

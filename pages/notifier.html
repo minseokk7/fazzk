@@ -20,13 +20,25 @@
             --primary-color: #00ffa3;
             --text-color: #ffffff;
             --font-family: 'Pretendard', sans-serif;
+            --body-bg: #121212;
+            --modal-bg: rgba(20, 20, 20, 0.85);
+        }
+
+        [data-theme="light"] {
+            --glass-bg: rgba(255, 255, 255, 0.8);
+            --glass-border: rgba(0, 0, 0, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
+            --primary-color: #00c853;
+            --text-color: #1a1a1a;
+            --body-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --modal-bg: rgba(255, 255, 255, 0.95);
         }
 
         body {
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
-            background: #121212;
+            background: var(--body-bg);
             /* Dark background to match OBS look */
             text-align: center;
             color: var(--text-color);
@@ -146,13 +158,13 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(20, 20, 20, 0.85);
+            background: var(--modal-bg);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             padding: 30px;
             border-radius: 16px;
             width: 380px;
-            color: white;
+            color: var(--text-color);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             z-index: 2000;
             border: 1px solid var(--glass-border);
@@ -512,8 +524,177 @@
 
         .obs-mode .bottom-nav-wrapper,
         .obs-mode .test-btn,
-        .obs-mode .session-banner {
+        .obs-mode .session-banner,
+        .obs-mode .theme-switch,
+        .obs-mode .update-banner {
             display: none !important;
+        }
+
+        /* 업데이트 진행률 배너 */
+        .update-banner {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(90deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 15px 20px;
+            text-align: center;
+            z-index: 10000;
+            display: none;
+            border-top: 1px solid rgba(0, 255, 163, 0.3);
+        }
+
+        .update-banner.show {
+            display: block;
+        }
+
+        .update-banner .update-text {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #00ffa3;
+        }
+
+        .update-progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .update-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ffa3 0%, #00cc82 100%);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        /* 로딩 애니메이션 */
+        .update-progress-fill.loading {
+            width: 100%;
+            background: linear-gradient(90deg,
+                    rgba(0, 255, 163, 0.3) 0%,
+                    rgba(0, 255, 163, 0.8) 50%,
+                    rgba(0, 255, 163, 0.3) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .update-percent {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        /* 테마 토글 스위치 */
+        .theme-switch {
+            position: fixed;
+            top: 55px;
+            right: 15px;
+            z-index: 9999;
+            font-size: 12px;
+            display: inline-block;
+            width: 4em;
+            height: 2.2em;
+            border-radius: 30px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .theme-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .theme-switch .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #2a2a2a;
+            transition: 0.4s;
+            border-radius: 30px;
+            overflow: hidden;
+        }
+
+        .theme-switch .slider:before {
+            position: absolute;
+            content: "";
+            height: 1.2em;
+            width: 1.2em;
+            border-radius: 20px;
+            left: 0.5em;
+            bottom: 0.5em;
+            transition: 0.4s;
+            transition-timing-function: cubic-bezier(0.81, -0.04, 0.38, 1.5);
+            box-shadow: inset 8px -4px 0px 0px #fff;
+        }
+
+        .theme-switch input:checked+.slider {
+            background-color: #00a6ff;
+        }
+
+        .theme-switch input:checked+.slider:before {
+            transform: translateX(1.8em);
+            box-shadow: inset 15px -4px 0px 15px #ffcf48;
+        }
+
+        .theme-switch .star {
+            background-color: #fff;
+            border-radius: 50%;
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            transition: all 0.4s;
+        }
+
+        .theme-switch .star_1 {
+            left: 2.5em;
+            top: 0.5em;
+        }
+
+        .theme-switch .star_2 {
+            left: 2.2em;
+            top: 1.2em;
+        }
+
+        .theme-switch .star_3 {
+            left: 3em;
+            top: 0.9em;
+        }
+
+        .theme-switch input:checked~.slider .star {
+            opacity: 0;
+        }
+
+        .theme-switch .cloud {
+            width: 3em;
+            height: 1.2em;
+            position: absolute;
+            bottom: -0.6em;
+            left: -0.3em;
+            opacity: 0;
+            transition: all 0.4s;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50px;
+        }
+
+        .theme-switch input:checked~.slider .cloud {
+            opacity: 1;
         }
     </style>
 
@@ -545,6 +726,7 @@
                 animationType: 'fade',
                 textColor: '#ffffff',
                 textSize: 100,
+                isDarkTheme: true,
 
                 async init() {
                     console.log('[Alpine] App Initialized');
@@ -553,8 +735,10 @@
                     // OBS Mode Check
                     if (new URLSearchParams(window.location.search).get('obs') === 'true') {
                         document.body.classList.add('obs-mode');
-                        console.log('[init] OBS-MODE');
                     }
+
+                    // 테마 로드
+                    this.loadTheme();
 
                     await this.loadSettings();
                     this.applyStyles();
@@ -775,6 +959,29 @@
                 formatTime(timestamp) {
                     const d = new Date(timestamp);
                     return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                },
+
+                // 테마 관련 함수
+                loadTheme() {
+                    const savedTheme = localStorage.getItem('fazzk-theme');
+                    if (savedTheme === 'light') {
+                        document.documentElement.setAttribute('data-theme', 'light');
+                        this.isDarkTheme = false;
+                    } else {
+                        document.documentElement.removeAttribute('data-theme');
+                        this.isDarkTheme = true;
+                    }
+                },
+
+                toggleTheme() {
+                    this.isDarkTheme = !this.isDarkTheme;
+                    if (this.isDarkTheme) {
+                        document.documentElement.removeAttribute('data-theme');
+                        localStorage.setItem('fazzk-theme', 'dark');
+                    } else {
+                        document.documentElement.setAttribute('data-theme', 'light');
+                        localStorage.setItem('fazzk-theme', 'light');
+                    }
                 }
             }));
         });
@@ -971,6 +1178,55 @@
     </div>
 
     <audio id="notificationSound" src="/public/sound.mp3" preload="auto"></audio>
+
+    <!-- 업데이트 진행률 배너 -->
+    <div id="updateBanner" class="update-banner">
+        <div id="updateText" class="update-text">🚀 업데이트 다운로드 중...</div>
+        <div class="update-progress-bar">
+            <div id="updateProgressFill" class="update-progress-fill"></div>
+        </div>
+        <div id="updatePercent" class="update-percent">0%</div>
+    </div>
+
+    <script>
+        // 업데이트 진행률 처리
+        if (window.electronAPI) {
+            // 다운로드 시작 시 배너 즉시 표시
+            window.electronAPI.onUpdateDownloadStarted((data) => {
+                const banner = document.getElementById('updateBanner');
+                const fill = document.getElementById('updateProgressFill');
+                const text = document.getElementById('updateText');
+                const percent = document.getElementById('updatePercent');
+
+                banner.classList.add('show');
+                fill.classList.add('loading');
+                text.textContent = `🚀 v${data.version} 다운로드 중...`;
+                percent.textContent = '다운로드 중...';
+            });
+
+            window.electronAPI.onUpdateProgress((data) => {
+                const banner = document.getElementById('updateBanner');
+                const fill = document.getElementById('updateProgressFill');
+                const text = document.getElementById('updateText');
+                const percent = document.getElementById('updatePercent');
+
+                banner.classList.add('show');
+                fill.style.width = data.percent + '%';
+                text.textContent = '🚀 업데이트 다운로드 중...';
+                percent.textContent = Math.round(data.percent) + '%';
+            });
+
+            window.electronAPI.onUpdateDownloaded(() => {
+                const fill = document.getElementById('updateProgressFill');
+                const text = document.getElementById('updateText');
+                const percent = document.getElementById('updatePercent');
+
+                fill.style.width = '100%';
+                text.textContent = '✅ 업데이트 완료! 앱 재시작 시 적용됩니다.';
+                percent.textContent = '100%';
+            });
+        }
+    </script>
 </body>
 
 </html>
