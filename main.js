@@ -111,6 +111,35 @@ ipcMain.handle('get-app-config', () => {
     };
 });
 
+// 테마 변경 시 타이틀바 색상 변경
+ipcMain.handle('set-theme', (event, isDark) => {
+    if (mainWindow) {
+        try {
+            const currentUrl = mainWindow.webContents.getURL();
+            let overlayColor;
+
+            if (currentUrl.includes('notifier.html')) {
+                // Notifier 페이지는 항상 녹색 타이틀바 (배너와 일체화)
+                overlayColor = '#01E271';
+            } else {
+                // Start 페이지는 테마에 따라 다름
+                overlayColor = isDark ? '#1a1a1a' : '#7261c7';
+            }
+
+            mainWindow.setTitleBarOverlay({
+                color: overlayColor,
+                symbolColor: '#ffffff',
+                height: 32
+            });
+            return true;
+        } catch (e) {
+            logger.error('[Theme] 타이틀바 색상 변경 실패:', e);
+            return false;
+        }
+    }
+    return false;
+});
+
 // Single Instance Lock
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -140,6 +169,12 @@ if (!gotTheLock) {
         mainWindow = new BrowserWindow({
             width: config.window.width,
             height: config.window.height,
+            titleBarStyle: 'hidden',
+            titleBarOverlay: {
+                color: '#1a1a1a',
+                symbolColor: '#ffffff',
+                height: 32
+            },
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,
@@ -220,6 +255,12 @@ if (!gotTheLock) {
                 mainWindow = new BrowserWindow({
                     width: config.window.width,
                     height: config.window.height,
+                    titleBarStyle: 'hidden',
+                    titleBarOverlay: {
+                        color: '#1a1a1a',
+                        symbolColor: '#ffffff',
+                        height: 32
+                    },
                     webPreferences: {
                         nodeIntegration: false,
                         contextIsolation: true,

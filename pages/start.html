@@ -43,7 +43,21 @@
             justify-content: center;
             color: var(--text-color);
             padding: 20px;
+            padding-top: 52px;
+            /* 타이틀바 높이(32px) + 여백(20px) */
             transition: background 0.3s ease;
+        }
+
+        /* 타이틀바 드래그 영역 */
+        .titlebar-drag-region {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 115px;
+            /* 창 컨트롤 버튼 너비 제외 */
+            height: 32px;
+            -webkit-app-region: drag;
+            z-index: 9998;
         }
 
         .container {
@@ -84,6 +98,18 @@
             transition: all 0.3s;
             box-shadow: 0 8px 20px rgba(0, 255, 163, 0.4);
             font-family: 'Pretendard', sans-serif;
+        }
+
+        /* 라이트 모드 로그인 버튼 스타일 */
+        html:not([data-theme="dark"]) .login-btn {
+            background: #ffffff;
+            color: #667eea;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        html:not([data-theme="dark"]) .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px rgba(102, 126, 234, 0.5);
         }
 
         .login-btn:hover {
@@ -206,9 +232,10 @@
         /* 다크모드 토글 스위치 */
         .theme-switch {
             position: fixed;
-            top: 15px;
-            right: 15px;
+            top: 42px;
+            right: 20px;
             z-index: 9999;
+            -webkit-app-region: no-drag;
             font-size: 12px;
             display: inline-block;
             width: 4em;
@@ -373,6 +400,9 @@
 </head>
 
 <body>
+    <!-- 타이틀바 드래그 영역 -->
+    <div class="titlebar-drag-region"></div>
+
     <!-- 다크모드 토글 스위치 -->
     <label class="theme-switch" title="테마 변경">
         <input type="checkbox" id="theme-checkbox" onchange="toggleTheme(this)" checked>
@@ -464,15 +494,16 @@
         /* 업데이트 알림 버튼 스타일 */
         .update-notify-btn {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
+            top: 20px;
+            left: 20px;
             z-index: 9999;
-            background: var(--container-bg, linear-gradient(135deg, #111827 0%, #1f2937 100%));
-            border: 1px solid var(--container-border, rgba(0, 255, 163, 0.2));
+            -webkit-app-region: no-drag;
+            background: #1e2730;
+            border: 1px solid rgba(0, 255, 163, 0.2);
             border-radius: 16px;
             padding: 12px 20px;
             cursor: pointer;
-            box-shadow: 0 20px 40px rgba(0, 255, 163, 0.15);
+            box-shadow: none;
             transition: all 0.3s ease;
             overflow: visible;
         }
@@ -481,7 +512,7 @@
         html:not([data-theme="dark"]) .update-notify-btn {
             background: rgba(255, 255, 255, 0.95);
             border-color: rgba(102, 126, 234, 0.3);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+            box-shadow: none;
         }
 
         html:not([data-theme="dark"]) .update-notify-btn .update-notify-title {
@@ -492,11 +523,29 @@
             color: #667eea;
         }
 
+        html:not([data-theme="dark"]) .update-notify-icon {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        html:not([data-theme="dark"]) .update-notify-icon-glow {
+            background: rgba(102, 126, 234, 0.5);
+        }
+
+        html:not([data-theme="dark"]) .update-notify-dots .dot {
+            background: #667eea;
+        }
+
+        html:not([data-theme="dark"]) .update-notify-btn:hover {
+            box-shadow: inset 0 0 20px rgba(102, 126, 234, 0.2);
+            border-color: rgba(102, 126, 234, 0.4);
+            transform: translateY(0);
+        }
+
         /* 다크 모드 버튼 스타일 */
         [data-theme="dark"] .update-notify-btn {
-            background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+            background: #1e2730;
             border-color: rgba(0, 255, 163, 0.2);
-            box-shadow: 0 20px 40px rgba(0, 255, 163, 0.15);
+            box-shadow: none;
         }
 
         [data-theme="dark"] .update-notify-btn .update-notify-title {
@@ -508,8 +557,8 @@
         }
 
         .update-notify-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 25px 50px rgba(0, 255, 163, 0.25);
+            transform: translateY(0);
+            box-shadow: inset 0 0 20px rgba(0, 255, 163, 0.2);
             border-color: rgba(0, 255, 163, 0.4);
         }
 
@@ -679,10 +728,10 @@
                         </div>
                     </div>
                     <div class="update-title-wrapper">
-                        <h3 class="update-title">새 업데이트 가능</h3>
+                        <h3 class="update-title" id="updateTitle">최신 버전 사용 중</h3>
                         <p class="update-version" id="updateVersionText">v1.0.0 → v1.1.0</p>
                     </div>
-                    <div class="update-badge">
+                    <div class="update-badge" id="updateBadgeLabel" style="display: none;">
                         <span class="update-badge-dot"></span>
                         New
                     </div>
@@ -708,7 +757,6 @@
                                 d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
                         </svg>
                     </button>
-                    <button class="update-btn-secondary" id="updateLaterBtn">나중에</button>
                 </div>
             </div>
         </div>
@@ -738,7 +786,7 @@
         .update-modal-content {
             position: relative;
             width: 400px;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background: #1e2730;
             border-radius: 20px;
             box-shadow: 0 25px 50px -12px rgba(0, 255, 163, 0.2);
             overflow: hidden;
@@ -859,7 +907,7 @@
             align-items: center;
             gap: 12px;
             padding: 16px;
-            background: rgba(30, 41, 59, 0.5);
+            background: #151b23;
             border-radius: 12px;
             margin-bottom: 20px;
         }
@@ -909,7 +957,7 @@
             transition: all 0.3s ease;
         }
 
-        .update-btn-primary:hover {
+        .update-btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(0, 255, 163, 0.3);
         }
@@ -920,7 +968,7 @@
             transition: transform 0.3s ease;
         }
 
-        .update-btn-primary:hover svg {
+        .update-btn-primary:hover:not(:disabled) svg {
             transform: translateX(4px);
         }
 
@@ -942,7 +990,7 @@
 
         /* 라이트 모드 모달 스타일 */
         html:not([data-theme="dark"]) .update-modal-content {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            background: #ffffff;
             box-shadow: 0 25px 50px -12px rgba(102, 126, 234, 0.3);
         }
 
@@ -959,7 +1007,7 @@
         }
 
         html:not([data-theme="dark"]) .update-notes {
-            background: rgba(255, 255, 255, 0.8);
+            background: #f1f5f9;
         }
 
         html:not([data-theme="dark"]) .update-notes p {
@@ -1000,7 +1048,7 @@
             color: white;
         }
 
-        html:not([data-theme="dark"]) .update-btn-primary:hover {
+        html:not([data-theme="dark"]) .update-btn-primary:hover:not(:disabled) {
             box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
         }
 
@@ -1081,7 +1129,7 @@
             color: #0f172a;
         }
 
-        [data-theme="dark"] .update-btn-primary:hover {
+        [data-theme="dark"] .update-btn-primary:hover:not(:disabled) {
             box-shadow: 0 10px 20px rgba(0, 255, 163, 0.3);
         }
 
@@ -1106,6 +1154,7 @@
         // 테마 토글 기능
         function toggleTheme(checkbox) {
             const html = document.documentElement;
+            const isDark = !checkbox.checked;
             if (checkbox.checked) {
                 html.removeAttribute('data-theme');
                 localStorage.setItem('fazzk-theme', 'light');
@@ -1113,17 +1162,26 @@
                 html.setAttribute('data-theme', 'dark');
                 localStorage.setItem('fazzk-theme', 'dark');
             }
+            // 타이틀바 색상도 변경
+            if (window.electronAPI?.setTheme) {
+                window.electronAPI.setTheme(isDark);
+            }
         }
 
         // 저장된 테마 불러오기
         function loadTheme() {
             const savedTheme = localStorage.getItem('fazzk-theme');
             const checkbox = document.getElementById('theme-checkbox');
-            if (savedTheme === 'dark') {
+            const isDark = savedTheme === 'dark';
+            if (isDark) {
                 document.documentElement.setAttribute('data-theme', 'dark');
                 checkbox.checked = false;
             } else {
                 checkbox.checked = true;
+            }
+            // 타이틀바 색상도 맞추기
+            if (window.electronAPI?.setTheme) {
+                window.electronAPI.setTheme(isDark);
             }
         }
 
@@ -1253,7 +1311,17 @@
 
             // 알림 버튼 클릭 시 모달 열기
             document.getElementById('updateNotifyBtn').addEventListener('click', () => {
+                const titleEl = document.getElementById('updateTitle');
+                const badgeLabelEl = document.getElementById('updateBadgeLabel');
+                const downloadBtn = document.getElementById('updateNowBtn');
+
                 if (updateData) {
+                    // 새 버전이 있을 때
+                    titleEl.textContent = '새 업데이트 가능';
+                    badgeLabelEl.style.display = 'flex';
+                    downloadBtn.disabled = false;
+                    downloadBtn.style.opacity = '1';
+                    downloadBtn.style.cursor = 'pointer';
                     document.getElementById('updateVersionText').textContent =
                         `${updateData.currentVersion} → ${updateData.latestVersion}`;
 
@@ -1263,8 +1331,13 @@
                     document.getElementById('updateNotesText').textContent =
                         firstLine.replace(/^[#\-*\s]+/, '').substring(0, 50);
                 } else {
-                    // 새 버전이 없을 때
-                    document.getElementById('updateVersionText').textContent = '최신 버전입니다';
+                    // 새 버전이 없을 때 (최신 버전)
+                    titleEl.textContent = '최신 버전 사용 중';
+                    badgeLabelEl.style.display = 'none';
+                    downloadBtn.disabled = true;
+                    downloadBtn.style.opacity = '0.5';
+                    downloadBtn.style.cursor = 'not-allowed';
+                    document.getElementById('updateVersionText').textContent = `v${window.electronAPI?.getAppVersion?.() || '1.6.4'}`;
                     document.getElementById('updateNotesText').textContent = '현재 최신 버전을 사용 중입니다.';
                 }
                 document.getElementById('updateModal').style.display = 'flex';
@@ -1276,11 +1349,6 @@
                     window.electronAPI.openDownloadPage(currentDownloadUrl);
                     document.getElementById('updateModal').style.display = 'none';
                 }
-            });
-
-            // 나중에 버튼
-            document.getElementById('updateLaterBtn').addEventListener('click', () => {
-                document.getElementById('updateModal').style.display = 'none';
             });
 
             // 배경 클릭 시 닫기

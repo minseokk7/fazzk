@@ -37,6 +37,8 @@
         body {
             margin: 0;
             padding: 0;
+            padding-top: 32px;
+            /* 타이틀바 높이 */
             font-family: var(--font-family);
             background: var(--body-bg);
             /* Dark background to match OBS look */
@@ -48,6 +50,18 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
+        }
+
+        /* 타이틀바 드래그 영역 */
+        .titlebar-drag-region {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 115px;
+            /* 창 컨트롤 버튼 너비 제외 */
+            height: 32px;
+            -webkit-app-region: drag;
+            z-index: 9998;
         }
 
         [x-cloak] {
@@ -696,6 +710,50 @@
         .theme-switch input:checked~.slider .cloud {
             opacity: 1;
         }
+
+        /* 세션 배너 스타일 강제 지정 */
+        .session-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            color: white;
+            font-weight: bold;
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            -webkit-app-region: drag;
+        }
+
+        .session-banner button {
+            -webkit-app-region: no-drag;
+        }
+
+        .session-banner.success {
+            background-color: #00c853 !important;
+        }
+
+        .session-banner.warning {
+            background-color: #f59e0b !important;
+        }
+
+        .session-banner.error {
+            background-color: #ef4444 !important;
+        }
+
+        .session-banner button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
     </style>
 
     <!-- Scripts -->
@@ -730,6 +788,12 @@
 
                 async init() {
                     console.log('[Alpine] App Initialized');
+
+                    // Notifier 페이지는 항상 녹색 타이틀바
+                    if (window.electronAPI?.setTheme) {
+                        window.electronAPI.setTheme(true); // 강제로 setTheme 호출
+                    }
+
                     this.audio = document.getElementById('notificationSound');
 
                     // OBS Mode Check
@@ -971,6 +1035,10 @@
                         document.documentElement.removeAttribute('data-theme');
                         this.isDarkTheme = true;
                     }
+                    // 타이틀바 색상도 맞추기
+                    if (window.electronAPI?.setTheme) {
+                        window.electronAPI.setTheme(this.isDarkTheme);
+                    }
                 },
 
                 toggleTheme() {
@@ -982,6 +1050,10 @@
                         document.documentElement.setAttribute('data-theme', 'light');
                         localStorage.setItem('fazzk-theme', 'light');
                     }
+                    // 타이틀바 색상도 변경
+                    if (window.electronAPI?.setTheme) {
+                        window.electronAPI.setTheme(this.isDarkTheme);
+                    }
                 }
             }));
         });
@@ -989,6 +1061,9 @@
 </head>
 
 <body x-data="app">
+    <!-- 타이틀바 드래그 영역 -->
+    <div class="titlebar-drag-region"></div>
+
     <!-- 세션 오류 배너 -->
     <div class="session-banner" :class="sessionError ? (isReconnecting ? 'warning' : 'error') : 'success'" x-cloak>
         <span x-show="isReconnecting">🔄 재연결 중... (<span x-text="reconnectAttempts"></span>/<span

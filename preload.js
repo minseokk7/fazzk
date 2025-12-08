@@ -31,7 +31,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // GitHub API 업데이트
   onUpdateAvailableGithub: (callback) => ipcRenderer.on('update-available-github', (_, data) => callback(data)),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  openDownloadPage: (url) => ipcRenderer.invoke('open-download-page', url)
+  openDownloadPage: (url) => ipcRenderer.invoke('open-download-page', url),
+
+  // 테마 변경 시 타이틀바 색상 변경
+  setTheme: (isDark) => ipcRenderer.invoke('set-theme', isDark)
 });
 
 // Log successful preload script loading
