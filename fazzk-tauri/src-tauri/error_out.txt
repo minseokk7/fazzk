@@ -1,0 +1,138 @@
+﻿cargo :     Checking 
+fazzk-tauri v0.1.0 (C
+:\Users\minse\Desktop
+\fazzk-dev\fazzk-taur
+i\src-tauri)
+위치 줄:1 문자:1
++ cargo check 2>&1 | 
+Out-File -Encoding ut
+f8 error_out.txt
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (    Che   
+ cking fa...auri\    
+src-tauri):Strin    g
+) [], RemoteExc    ep
+tion
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+warning: unused impor
+ts: `Response` and `h
+eader`
+ --> src\server.rs:3:
+30
+  |
+3 |     response::{In
+toResponse, Response,
+ Html},
+  |                  
+            ^^^^^^^^
+...
+6 |     http::{Method
+, StatusCode, header}
+,
+  |                  
+              ^^^^^^
+  |
+  = note: `#[warn(unu
+sed_imports)]` (part 
+of `#[warn(unused)]`)
+ on by default
+
+warning: use of depre
+cated method `tauri_p
+lugin_shell::Shell::<
+R>::open`: Use tauri-
+plugin-opener instead
+.
+  --> src\lib.rs:13:2
+5
+   |
+13 |     let _ = app.
+shell().open("https:/
+/nid.naver.com/nidlog
+in.login", None::<Str
+ing>);
+   |                 
+        ^^^^
+   |
+   = note: `#[warn(de
+precated)]` on by def
+ault
+
+error[E0308]: mismatc
+hed types
+  --> src\lib.rs:13:7
+0
+   |
+13 |     let _ = app.
+shell().open("https:/
+/nid.naver.com/nidlog
+in.login", None::<Str
+ing>);
+   |                 
+        ---- argument
+s to this method are 
+incorrect  ^^^^^^^^^^
+^^^^ expected `Option
+<Program>`, found `Op
+tion<String>`
+   |
+   = note: expected e
+num `std::option::Opt
+ion<Program>`
+              found e
+num `std::option::Opt
+ion<std::string::Stri
+ng>`
+note: method defined 
+here
+  --> C:\Users\minse\
+.cargo\registry\src\i
+ndex.crates.io-1949cf
+8c6b5b557f\tauri-plug
+in-shell-2.3.3\src\li
+b.rs:77:12
+   |
+77 |     pub fn open(
+&self, path: impl Int
+o<String>, with: Opti
+on<open::Program>) ->
+ Result<()> {
+   |            ^^^^
+
+warning: unused impor
+t: `Manager`
+  --> src\server.rs:1
+0:24
+   |
+10 | use tauri::{AppH
+andle, Manager, Emitt
+er};
+   |                 
+       ^^^^^^^
+
+warning: unused impor
+t: `tauri::Manager`
+ --> src\lib.rs:5:5
+  |
+5 | use tauri::Manage
+r;
+  |     ^^^^^^^^^^^^^
+^
+
+For more information 
+about this error, try
+ `rustc --explain E03
+08`.
+warning: `fazzk-tauri
+` (lib) generated 4 w
+arnings
+error: could not comp
+ile `fazzk-tauri` (li
+b) due to 1 previous 
+error; 4 warnings emi
+tted

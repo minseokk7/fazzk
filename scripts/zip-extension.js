@@ -115,11 +115,17 @@ function moveElectronApp() {
 
 // 빌드 실행
 async function build() {
+    const extensionsOnly = process.argv.includes('--extensions-only');
+
     console.log(`🔧 v${version} 빌드 시작...\n`);
     console.log(`📁 출력 폴더: dist/v${version}/\n`);
     await buildChromeExtension();
     await buildFirefoxExtension();
-    moveElectronApp();
+
+    if (!extensionsOnly) {
+        moveElectronApp();
+    }
+
     console.log('\n✨ 빌드 완료!');
 }
 
