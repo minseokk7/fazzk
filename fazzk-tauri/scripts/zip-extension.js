@@ -90,41 +90,12 @@ function buildFirefoxExtension() {
     });
 }
 
-// Electron 앱 파일을 버전 폴더로 이동
-function moveElectronApp() {
-    const distDir = path.join(__dirname, '../dist');
-    const appFiles = [
-        `Fazzk Setup ${version}.exe`,
-        `Fazzk Setup ${version}.exe.blockmap`
-    ];
-
-    let moved = 0;
-    for (const file of appFiles) {
-        const src = path.join(distDir, file);
-        const dest = path.join(versionDir, file);
-        if (fs.existsSync(src)) {
-            fs.renameSync(src, dest);
-            moved++;
-        }
-    }
-
-    if (moved > 0) {
-        console.log(`✅ Electron 앱: v${version} 폴더로 이동 (${moved}개 파일)`);
-    }
-}
-
 // 빌드 실행
 async function build() {
-    const extensionsOnly = process.argv.includes('--extensions-only');
-
     console.log(`🔧 v${version} 빌드 시작...\n`);
     console.log(`📁 출력 폴더: dist/v${version}/\n`);
     await buildChromeExtension();
     await buildFirefoxExtension();
-
-    if (!extensionsOnly) {
-        moveElectronApp();
-    }
 
     console.log('\n✨ 빌드 완료!');
 }
