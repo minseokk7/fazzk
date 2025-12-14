@@ -115,6 +115,7 @@ document.addEventListener('alpine:init', () => {
             if (params.has('textSize')) this.textSize = parseInt(params.get('textSize'));
 
             this.applyStyles();
+            this.loadHistory(); // Load history on init
         },
 
         async saveSettings() {
@@ -160,8 +161,13 @@ document.addEventListener('alpine:init', () => {
             document.body.style.fontSize = `${this.textSize}%`;
 
             // Update audio source if custom path exists
+            // Update audio source if custom path exists
             if (this.customSoundPath) {
-                this.audio.src = `file://${this.customSoundPath}`;
+                if (window.electronAPI?.convertFileSrc) {
+                    this.audio.src = window.electronAPI.convertFileSrc(this.customSoundPath);
+                } else {
+                    this.audio.src = `file://${this.customSoundPath}`;
+                }
             } else {
                 this.audio.src = '/public/sound.mp3';
             }
@@ -263,6 +269,7 @@ document.addEventListener('alpine:init', () => {
                 console.log('[SHOW] Nickname:', this.currentItem?.user?.nickname);
 
                 this.playAlarm();
+                this.addHistory(this.currentItem); // Add to history
                 if (this.enableTTS) this.speak(this.currentItem.user.nickname);
 
                 // Show duration
@@ -292,6 +299,43 @@ document.addEventListener('alpine:init', () => {
                 utterance.volume = this.volume;
                 window.speechSynthesis.speak(utterance);
             }
+        },
+
+        addHistory(item) {
+            if (!item) return;
+            // Add timestamp
+            const historyItem = {
+                ...item,
+                notifiedAt: new Date().toISOString()
+            };
+            this.history.unshift(historyItem);
+
+            // Limit history size (e.g., 50)
+            if (this.history.length > 50) {
+                this.history.pop();
+            }
+            this.saveHistory();
+        },
+
+        saveHistory() {
+            localStorage.setItem('alarmHistory', JSON.stringify(this.history));
+        },
+
+        loadHistory() {
+            const saved = localStorage.getItem('alarmHistory');
+            if (saved) {
+                try {
+                    this.history = JSON.parse(saved);
+                } catch (e) {
+                    console.error('[History] Load failed:', e);
+                    this.history = [];
+                }
+            }
+        },
+
+        clearHistory() {
+            this.history = [];
+            localStorage.removeItem('alarmHistory');
         },
 
         testAlarm() {

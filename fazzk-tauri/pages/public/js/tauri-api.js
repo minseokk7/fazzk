@@ -26,6 +26,7 @@
         const { open } = window.__TAURI__.shell;
         const { getCurrentWindow } = window.__TAURI__.window;
         const { listen } = window.__TAURI__.event;
+        const { convertFileSrc } = window.__TAURI__.core; // Tauri 2.0
 
         // Listen for manual login success from Rust backend
         listen('manual-login-success', (event) => {
@@ -37,6 +38,15 @@
             setTimeout(() => {
                 window.location.href = '/notifier.html';
             }, 500);
+        });
+
+        // Update Progress Listener
+        let updateProgressCallback = null;
+        listen('update-progress', (event) => {
+            console.log('[Tauri API] Update Progress:', event.payload);
+            if (updateProgressCallback) {
+                updateProgressCallback(event.payload);
+            }
         });
 
         // window.electronAPI 호환 객체 생성
@@ -57,6 +67,15 @@
                 } catch (e) {
                     console.error('[Tauri API] getServerPort 실패:', e);
                     return 3000; // Fallback
+                }
+            },
+
+            getAppVersion: async () => {
+                try {
+                    return await invoke('get_app_version');
+                } catch (e) {
+                    console.error('[Tauri API] getAppVersion 실패:', e);
+                    return '2.0.0'; // Fallback
                 }
             },
 
@@ -93,6 +112,18 @@
                     console.error('[Tauri API] openDownloadPage 실패:', e);
                 }
             },
+            downloadUpdate: async (url) => {
+                try {
+                    return await invoke('download_and_install_update', { url });
+                } catch (e) {
+                    console.error('[Tauri API] downloadUpdate 실패:', e);
+                    alert('다운로드 실패: ' + e);
+                }
+            },
+            onUpdateProgress: (callback) => {
+                updateProgressCallback = callback;
+                console.log('[Tauri API] onUpdateProgress 리스너 등록됨');
+            },
 
             // === 네비게이션 ===
             navigateToUrl: async (url) => {
@@ -107,7 +138,6 @@
             },
 
             // === 로그인 ===
-            // startLogin 함수 제거: 확장 프로그램을 통한 로그인만 사용
             manualLogin: async (nid_aut, nid_ses) => {
                 try {
                     // Tauri converts camelCase to snake_case for args
@@ -123,15 +153,30 @@
             // === 설정 ===
             selectAudioFile: async () => {
                 try {
-                    const { open: openDialog } = window.__TAURI__.dialog;
-                    const selected = await openDialog({
+                    // Tauri 2.0 Plugin Access
+                    const dialog = window.__TAURI__.dialog || (window.__TAURI__.plugin && window.__TAURI__.plugin.dialog);
+                    if (!dialog) {
+                        console.error('[Tauri API] Dialog plugin not found');
+                        return null;
+                    }
+
+                    const selected = await dialog.open({
                         multiple: false,
                         filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg'] }]
                     });
+
                     return selected;
                 } catch (e) {
                     console.error('[Tauri API] selectAudioFile 실패:', e);
                     return null;
+                }
+            },
+            convertFileSrc: (filePath) => {
+                try {
+                    return convertFileSrc(filePath);
+                } catch (e) {
+                    console.error('[Tauri API] convertFileSrc 실패:', e);
+                    return filePath;
                 }
             },
             getAppConfig: async () => {
@@ -145,80 +190,32 @@
 
             // === 테마 ===
             setTheme: async (isDark) => {
-                // Tauri에서는 타이틀바 색상 변경이 제한적이므로 로컬 저장만 수행
                 localStorage.setItem('fazzk-theme', isDark ? 'dark' : 'light');
                 return true;
             },
 
-            // === 업데이트 관련 (이벤트 리스너 스텁) ===
-            // Tauri 업데이터는 다른 방식으로 동작하므로 스텁 처리
-            onUpdateAvailable: (callback) => {
-                // Tauri 업데이터 이벤트 연결 예정
-                console.log('[Tauri API] onUpdateAvailable 리스너 등록됨');
-            },
-            onUpdateDownloadStarted: (callback) => {
-                console.log('[Tauri API] onUpdateDownloadStarted 리스너 등록됨');
-            },
-            onUpdateProgress: (callback) => {
-                console.log('[Tauri API] onUpdateProgress 리스너 등록됨');
-            },
-            onUpdateDownloaded: (callback) => {
-                console.log('[Tauri API] onUpdateDownloaded 리스너 등록됨');
-            },
-            onUpdateAvailableGithub: (callback) => {
-                console.log('[Tauri API] onUpdateAvailableGithub 리스너 등록됨');
-            },
-            onUpdateCheckFailed: (callback) => {
-                console.log('[Tauri API] onUpdateCheckFailed 리스너 등록됨');
-            },
-            onUpdateCheckComplete: (callback) => {
-                console.log('[Tauri API] onUpdateCheckComplete 리스너 등록됨');
-            },
-            checkForUpdates: async () => {
-                console.log('[Tauri API] checkForUpdates 호출 (스텁)');
-                return false;
-            },
-            openDownloadPage: async (url) => {
-                try {
-                    await open(url);
-                    return true;
-                } catch (e) {
-                    console.error('[Tauri API] openDownloadPage 실패:', e);
-                    window.open(url, '_blank');
-                    return true;
-                }
-            },
+            // === Placeholder for update events ===
+            onUpdateAvailable: (cb) => { },
+            onUpdateDownloadStarted: (cb) => { },
+            onUpdateDownloaded: (cb) => { },
+            onUpdateAvailableGithub: (cb) => { },
+            onUpdateCheckFailed: (cb) => { },
+            onUpdateCheckComplete: (cb) => { },
 
             // === 창 제어 (Custom Titlebar for Tauri) ===
             minimize: async () => {
-                console.log('[Tauri API] minimize clicked');
-                try {
-                    await getCurrentWindow().minimize();
-                } catch (e) {
-                    console.error('[Tauri API] minimize 실패:', e);
-                    alert('Minimize Failed: ' + e);
-                }
+                try { await getCurrentWindow().minimize(); } catch (e) { console.error(e); }
             },
             toggleMaximize: async () => {
                 try {
                     const win = getCurrentWindow();
                     const isMaximized = await win.isMaximized();
-                    if (isMaximized) {
-                        await win.unmaximize();
-                    } else {
-                        await win.maximize();
-                    }
-                } catch (e) {
-                    console.error('[Tauri API] toggleMaximize 실패:', e);
-                }
+                    if (isMaximized) await win.unmaximize();
+                    else await win.maximize();
+                } catch (e) { console.error(e); }
             },
             close: async () => {
-                try {
-                    await getCurrentWindow().close();
-                } catch (e) {
-                    console.error('[Tauri API] close 실패:', e);
-                    alert('Close Failed: ' + e);
-                }
+                try { await getCurrentWindow().close(); } catch (e) { console.error(e); }
             },
 
             // === 로깅 ===

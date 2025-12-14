@@ -34,8 +34,6 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     }
     
     // 정적 파일 경로 (개발 vs 빌드 환경)
-    use tauri::Manager;
-    
     // 가능한 리소스 경로들을 시도
     let resource_base = app_handle.path().resource_dir().ok();
     

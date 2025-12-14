@@ -1,0 +1,102 @@
+﻿cargo :    Compiling 
+fazzk-tauri v2.0.0 (C
+:\Users\minse\Desktop
+\fazzk-dev\fazzk-taur
+i\src-tauri)
+위치 줄:1 문자:1
++ cargo build --relea
+se 2>&1 | Out-File -F
+ilePath "../build-err
+ors.txt" ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (   Comp   
+ iling fa...auri\    
+src-tauri):Strin    g
+) [], RemoteExc    ep
+tion
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+error[E0599]: no meth
+od named `bytes_strea
+m` found for struct `
+reqwest::Response` in
+ the current scope
+   --> src\updater.rs
+:214:26
+    |
+214 |     let mut str
+eam = res.bytes_strea
+m();
+    |                
+          ^^^^^^^^^^^
+^ method not found in
+ `reqwest::Response`
+
+error[E0599]: no func
+tion or associated it
+em named `from_path` 
+found for struct `Ima
+ge<'a>` in the curren
+t scope
+   --> src\lib.rs:221
+:50
+    |
+221 |             let
+ tray_icon = tauri::i
+mage::Image::from_pat
+h("icons/tray.png")
+    |                
+                     
+             ^^^^^^^^
+^ function or associa
+ted item not found in
+ `Image<'_>`
+    |
+note: if you're tryin
+g to build a new `Ima
+ge<'_>` consider usin
+g one of the followin
+g associated function
+s:
+      Image::<'static
+>::new_owned
+      Image::<'a>::ne
+w
+   --> C:\Users\minse
+\.cargo\registry\src\
+index.crates.io-1949c
+f8c6b5b557f\tauri-2.9
+.5\src\image\mod.rs:5
+2:3
+    |
+ 52 |   pub const fn 
+new_owned(rgba: Vec<u
+8>, width: u32, heigh
+t: u32) -> Self {
+    |   ^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+...
+ 63 |   pub const fn 
+new(rgba: &'a [u8], w
+idth: u32, height: u3
+2) -> Self {
+    |   ^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^
+
+For more information 
+about this error, try
+ `rustc --explain E05
+99`.
+error: could not comp
+ile `fazzk-tauri` (li
+b) due to 2 previous 
+errors

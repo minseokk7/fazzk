@@ -163,6 +163,68 @@ pub async fn check_for_updates() -> UpdateCheckResult {
 /// 다운로드 페이지 열기 (Tauri Command)
 #[tauri::command]
 pub async fn open_download_page(url: String) -> Result<(), String> {
-    tauri_plugin_opener::open_url(url, None::<&str>)
-        .map_err(|e| format!("브라우저 열기 실패: {}", e))
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd")
+        .args(["/C", "start", &url])
+        .spawn()
+        .map_err(|e| format!("브라우저 열기 실패: {}", e))?;
+    
+    #[cfg(not(target_os = "windows"))]
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("브라우저 열기 실패: {}", e))?;
+    
+    Ok(())
+}
+
+
+use tauri::{AppHandle, Emitter};
+
+
+#[derive(Clone, Serialize)]
+struct ProgressPayload {
+    percent: u64,
+    total: u64,
+    current: u64,
+}
+
+/// 앱 내에서 업데이트 직접 다운로드 및 설치
+#[tauri::command]
+pub async fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String> {
+    println!("[Updater] 다운로드 시작: {}", url);
+    
+    // 1. Temp 파일 생성
+    let temp_dir = std::env::temp_dir();
+    let file_name = url.split('/').last().unwrap_or("fazzk_update.exe");
+    let file_path = temp_dir.join(file_name);
+    
+    println!("[Updater] 저장 경로: {:?}", file_path);
+    
+    // 2. reqwest로 다운로드
+    let client = reqwest::Client::new();
+    let res = client.get(&url)
+        .header(USER_AGENT, "Fazzk-Updater")
+        .send()
+        .await
+        .map_err(|e| format!("네트워크 요청 실패: {}", e))?;
+        
+    let total_size = res.content_length().unwrap_or(0);
+    let bytes = res.bytes().await.map_err(|e| format!("다운로드 실패: {}", e))?;
+    
+    std::fs::write(&file_path, &bytes).map_err(|e| format!("파일 쓰기 실패: {}", e))?;
+    
+    app.emit("update-progress", ProgressPayload { 
+        percent: 100, 
+        total: total_size, 
+        current: bytes.len() as u64 
+    }).unwrap_or_default();
+    
+    // 단순하게 std::process::Command 사용 (Windows)
+    std::process::Command::new(&file_path)
+        .spawn()
+        .map_err(|e| format!("설치 프로그램 실행 실패: {}", e))?;
+        
+    // 4. 앱 종료 (설치 진행을 위해)
+    std::process::exit(0);
 }

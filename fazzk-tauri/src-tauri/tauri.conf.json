@@ -6,6 +6,14 @@
   "build": {
     "frontendDist": "../pages"
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/minseok7891/fazzk/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBFMTA2MTc5NEM2MTREMzEKUldReFRXRk1lV0VRRHBZb2I4WU55eFJqM1hZa1R6clJqbzdGcFlPK2djQmd0Y21WNndiYTRraUgK"
+    }
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [
@@ -28,14 +36,17 @@
       "../pages/**/*"
     ],
     "icon": [
+      "icon.ico",
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/256x256.png",
+      "icons/512x512.png",
+      "icons/icon.icns"
     ],
     "windows": {
       "nsis": {
+        "installerIcon": "icon.ico",
         "languages": [
           "Korean"
         ],

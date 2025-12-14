@@ -193,13 +193,72 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 중복 실행 시 기존 창 포커스
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(app_state)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 윈도우 닫기 요청 시(X 버튼 등) 앱을 종료하지 않고 숨김
+                // 트레이 아이콘을 통해서만 완전히 종료 가능
+                window.hide().unwrap();
+                api.prevent_close();
+            }
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             let state = server_state.clone();
+            
+            // 서버 시작
             tauri::async_runtime::spawn(async move {
                 server::start_server(state, handle).await;
             });
+            
+            // 트레이 아이콘 설정
+            use tauri::tray::TrayIconBuilder;
+            use tauri::menu::{Menu, MenuItem};
+            
+            let show_item = MenuItem::with_id(app, "show", "보이기", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            std::process::exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    use tauri::tray::{TrayIconEvent, MouseButton, MouseButtonState};
+                    match event {
+                        TrayIconEvent::Click { button, button_state, .. } => {
+                            if button == MouseButton::Left && button_state == MouseButtonState::Up {
+                                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app)?;
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -208,8 +267,10 @@ pub fn run() {
             get_stored_cookies,
             manual_login,
             get_server_port,
+            get_app_version,
             updater::check_for_updates,
-            updater::open_download_page
+            updater::open_download_page,
+            updater::download_and_install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -219,4 +280,9 @@ pub fn run() {
 async fn get_server_port(state: tauri::State<'_, Arc<AppState>>) -> Result<u16, String> {
     let port = state.port.lock().map_err(|e| e.to_string())?;
     Ok(*port)
+}
+
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
