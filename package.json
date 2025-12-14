@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "zip-extensions": "node scripts/zip-extension.js"
+    "zip-extensions": "node scripts/zip-extension.cjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
