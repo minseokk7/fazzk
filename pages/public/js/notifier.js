@@ -2,7 +2,7 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
         // API Base URL
         baseUrl: 'http://localhost:3000',
-        obsUrl: 'http://localhost:3000/follower?obs=true',
+        obsUrl: 'http://localhost:3000/follower',
 
         currentItem: null,
         queue: [],
@@ -58,13 +58,13 @@ document.addEventListener('alpine:init', () => {
             if (window.fazzkAPI?.getServerPort) {
                 const port = await window.fazzkAPI.getServerPort();
                 this.baseUrl = `http://localhost:${port}`;
-                this.obsUrl = `http://localhost:${port}/follower?obs=true`;
+                this.obsUrl = `http://localhost:${port}/follower`;
                 console.log('[Notifier] Using Dynamic Port (Tauri):', port);
             }
             // 2. 그 외 환경 (OBS, 브라우저 직접 접속 등)
             else if (window.location.protocol.startsWith('http')) {
                 this.baseUrl = window.location.origin;
-                this.obsUrl = `${this.baseUrl}/follower?obs=true`;
+                this.obsUrl = `${this.baseUrl}/follower`;
                 console.log('[Notifier] Auto-detected Base URL (HTTP):', this.baseUrl);
             }
 
@@ -353,7 +353,7 @@ document.addEventListener('alpine:init', () => {
 
         copyOBSUrl() {
             // OBS URL은 항상 백엔드 서버 포트를 사용해야 함
-            const url = `${this.baseUrl}/follower?obs=true`;
+            const url = `${this.baseUrl}/follower`;
             navigator.clipboard.writeText(url).then(() => {
                 if (window.Toast) window.Toast.success('OBS URL이 복사되었습니다!');
                 else alert('OBS URL이 복사되었습니다!');
