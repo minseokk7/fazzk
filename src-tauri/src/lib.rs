@@ -1,11 +1,11 @@
+pub mod chzzk;
 pub mod server;
 pub mod state;
-pub mod chzzk;
 pub mod updater;
 
-use tauri::Manager;
-use std::sync::Arc;
 use state::AppState;
+use std::sync::Arc;
+use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 /// 앱 시작 시 저장된 쿠키를 로드하고 검증합니다.
@@ -15,37 +15,39 @@ async fn check_auto_login(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<serde_json::Value, String> {
     println!("[Command] check_auto_login called");
-    
+
     // 1. Load cookies from Store
     let store = app.store("session.json").map_err(|e| {
         println!("[Command] Failed to open store: {}", e);
         format!("Store 열기 실패: {}", e)
     })?;
-    
+
     // Store에서 값 가져오기
     let nid_aut_value = store.get("NID_AUT");
     let nid_ses_value = store.get("NID_SES");
-    
+
     if nid_aut_value.is_none() || nid_ses_value.is_none() {
         println!("[Command] No stored cookies found");
         return Err("저장된 쿠키 없음".to_string());
     }
-    
+
     // serde_json::Value를 String으로 변환
     let nid_aut_str = match nid_aut_value {
-        Some(value) => value.as_str()
+        Some(value) => value
+            .as_str()
             .ok_or("NID_AUT가 문자열이 아닙니다")?
             .to_string(),
         None => return Err("NID_AUT가 없습니다".to_string()),
     };
-    
+
     let nid_ses_str = match nid_ses_value {
-        Some(value) => value.as_str()
+        Some(value) => value
+            .as_str()
             .ok_or("NID_SES가 문자열이 아닙니다")?
             .to_string(),
         None => return Err("NID_SES가 없습니다".to_string()),
     };
-    
+
     // 2. Verify cookies with Chzzk API
     let cookie_data = state::CookieData {
         nid_aut: nid_aut_str.clone(),
@@ -54,7 +56,10 @@ async fn check_auto_login(
 
     match chzzk::get_profile_id(&state.client, &cookie_data).await {
         Ok((user_id_hash, nickname)) => {
-            println!("[Command] Auto-login successful: {} ({})", nickname, user_id_hash);
+            println!(
+                "[Command] Auto-login successful: {} ({})",
+                nickname, user_id_hash
+            );
 
             // 3. Update Global State
             {
@@ -76,7 +81,7 @@ async fn check_auto_login(
                 "nickname": nickname,
                 "userIdHash": user_id_hash
             }))
-        },
+        }
         Err(e) => {
             println!("[Command] Auto-login verification failed: {}", e);
             // Clear invalid cookies
@@ -96,38 +101,36 @@ async fn save_cookies(
     nid_ses: String,
 ) -> Result<(), String> {
     println!("[Command] save_cookies called");
-    
-    let store = app.store("session.json").map_err(|e| {
-        format!("Store 열기 실패: {}", e)
-    })?;
-    
+
+    let store = app
+        .store("session.json")
+        .map_err(|e| format!("Store 열기 실패: {}", e))?;
+
     store.set("NID_AUT", serde_json::json!(nid_aut));
     store.set("NID_SES", serde_json::json!(nid_ses));
-    
-    store.save().map_err(|e| {
-        format!("Store 저장 실패: {}", e)
-    })?;
-    
+
+    store
+        .save()
+        .map_err(|e| format!("Store 저장 실패: {}", e))?;
+
     println!("[Command] Cookies saved successfully");
     Ok(())
 }
 
 /// Store에서 저장된 쿠키를 가져옵니다.
 #[tauri::command]
-async fn get_stored_cookies(
-    app: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
-    let store = app.store("session.json").map_err(|e| {
-        format!("Store 열기 실패: {}", e)
-    })?;
-    
+async fn get_stored_cookies(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let store = app
+        .store("session.json")
+        .map_err(|e| format!("Store 열기 실패: {}", e))?;
+
     let nid_aut = store.get("NID_AUT");
     let nid_ses = store.get("NID_SES");
-    
+
     if nid_aut.is_none() || nid_ses.is_none() {
         return Err("저장된 쿠키 없음".to_string());
     }
-    
+
     Ok(serde_json::json!({
         "NID_AUT": nid_aut,
         "NID_SES": nid_ses
@@ -142,7 +145,7 @@ async fn manual_login(
     nid_ses: String,
 ) -> Result<(), String> {
     println!("[Command] manual_login called");
-    
+
     // 1. Verify cookies with Chzzk API
     let cookie_data = state::CookieData {
         nid_aut: nid_aut.clone(),
@@ -169,13 +172,17 @@ async fn manual_login(
 
             // 3. Emit Success Event
             use tauri::Emitter;
-            app.emit("manual-login-success", serde_json::json!({
-                "nickname": nickname,
-                "userIdHash": user_id_hash
-            })).map_err(|e| e.to_string())?;
-            
+            app.emit(
+                "manual-login-success",
+                serde_json::json!({
+                    "nickname": nickname,
+                    "userIdHash": user_id_hash
+                }),
+            )
+            .map_err(|e| e.to_string())?;
+
             Ok(())
-        },
+        }
         Err(e) => {
             println!("[Command] Login verification failed: {}", e);
             Err(format!("로그인 검증 실패: {}", e))
@@ -212,40 +219,43 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
             let state = server_state.clone();
-            
+
             // 서버 시작
             tauri::async_runtime::spawn(async move {
                 server::start_server(state, handle).await;
             });
-            
+
             // 트레이 아이콘 설정
-            use tauri::tray::TrayIconBuilder;
             use tauri::menu::{Menu, MenuItem};
-            
+            use tauri::tray::TrayIconBuilder;
+
             let show_item = MenuItem::with_id(app, "show", "보이기", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-            
+
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            std::process::exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        std::process::exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    use tauri::tray::{TrayIconEvent, MouseButton, MouseButtonState};
-                    if let TrayIconEvent::Click { button, button_state, .. } = event {
+                    use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                    if let TrayIconEvent::Click {
+                        button,
+                        button_state,
+                        ..
+                    } = event
+                    {
                         if button == MouseButton::Left && button_state == MouseButtonState::Up {
                             if let Some(window) = tray.app_handle().get_webview_window("main") {
                                 let _ = window.show();
@@ -255,7 +265,7 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

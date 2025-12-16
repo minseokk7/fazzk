@@ -1,0 +1,37 @@
+﻿cargo :     Checking fazzk-t
+auri v2.1.1 (C:\Users\minse\
+Desktop\fazzk-dev\src-tauri)
+위치 줄:1 문자:1
++ cargo check 2>&1 | Out-Fil
+e -FilePath cargo_error.txt 
+-Encoding utf8
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          
+    : NotSpecified: (    C  
+  hecking fa...-dev\src-t   
+ auri):String) [], Remot    
+eException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
+error: unexpected closing de
+limiter: `}`
+   --> src\lib.rs:296:1
+    |
+293 | fn get_app_version() -
+> String {
+    |                       
+         - this opening brac
+e...
+294 |     env!("CARGO_PKG_VE
+RSION").to_string()
+295 | }
+    | - ...matches this clos
+ing brace
+296 | }
+    | ^ unexpected closing d
+elimiter
+
+error: could not compile `fa
+zzk-tauri` (lib) due to 1 pr
+evious error
