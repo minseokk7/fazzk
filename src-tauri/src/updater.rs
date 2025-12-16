@@ -272,7 +272,8 @@ timeout /t 2 /nobreak > nul
 "{}" /S
 timeout /t 3 /nobreak > nul
 start "" "{}"
-del "%~f0"
+(goto) 2>nul & del "%~f0"
+exit
 "#,
         file_path.display(),
         app_exe_path.display()
@@ -284,11 +285,26 @@ del "%~f0"
 
     println!("[Updater] 배치 스크립트 생성: {:?}", batch_path);
 
-    // 4. 배치 스크립트 실행 (숨김 창으로)
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "/min", "", &batch_path.to_string_lossy()])
-        .spawn()
-        .map_err(|e| format!("업데이트 스크립트 실행 실패: {}", e))?;
+    // 4. 배치 스크립트 실행 (완전히 숨김 - CREATE_NO_WINDOW)
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        std::process::Command::new("cmd")
+            .args(["/C", &batch_path.to_string_lossy()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("업데이트 스크립트 실행 실패: {}", e))?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new("sh")
+            .arg(&batch_path)
+            .spawn()
+            .map_err(|e| format!("업데이트 스크립트 실행 실패: {}", e))?;
+    }
 
     // 5. 앱 종료 (설치 진행을 위해)
     std::process::exit(0);
