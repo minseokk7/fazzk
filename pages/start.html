@@ -1190,11 +1190,15 @@
             }
         }
 
-        // 페이지 로드 후 업데이트 체크
+        // 페이지 로드 후 업데이트 체크 (시작 2초 후 + 30분마다 주기적 확인)
         setTimeout(checkForUpdates, 2000);
+        setInterval(checkForUpdates, 30 * 60 * 1000); // 30분마다 확인
 
-        // 알림 버튼 클릭 시 모달 열기
-        document.getElementById('updateNotifyBtn').addEventListener('click', () => {
+        // 알림 버튼 클릭 시 모달 열기 (클릭 시 업데이트 다시 확인)
+        document.getElementById('updateNotifyBtn').addEventListener('click', async () => {
+            // 클릭할 때마다 업데이트 다시 확인
+            await checkForUpdates();
+
             const titleEl = document.getElementById('updateTitle');
             const badgeLabelEl = document.getElementById('updateBadgeLabel');
             const downloadBtn = document.getElementById('updateNowBtn');
