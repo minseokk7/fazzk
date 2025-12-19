@@ -1,8 +1,8 @@
 document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
         // API Base URL
-        baseUrl: 'http://localhost:3000',
-        obsUrl: 'http://localhost:3000/follower',
+        baseUrl: (window.FAZZK_CONFIG?.API?.BASE_URL_DEFAULT) || 'http://localhost:3000',
+        obsUrl: ((window.FAZZK_CONFIG?.API?.BASE_URL_DEFAULT) || 'http://localhost:3000') + (window.FAZZK_CONFIG?.API?.OBS_URL_PATH || '/follower'),
 
         currentItem: null,
         queue: [],
@@ -15,13 +15,13 @@ document.addEventListener('alpine:init', () => {
         sessionError: false,
         isReconnecting: false,
         reconnectAttempts: 0,
-        maxReconnectAttempts: 5,
+        maxReconnectAttempts: (window.FAZZK_CONFIG?.API?.RECONNECT_ATTEMPTS) || 5,
         history: [],
 
         // Settings
-        volume: 0.5,
-        pollingInterval: 5,
-        displayDuration: 5,
+        volume: (window.FAZZK_CONFIG?.UI?.DEFAULT_VOLUME) || 0.5,
+        pollingInterval: (window.FAZZK_CONFIG?.API?.POLLING_INTERVAL_DEFAULT) || 5,
+        displayDuration: (window.FAZZK_CONFIG?.UI?.DISPLAY_DURATION_DEFAULT / 1000) || 5,
         enableTTS: false,
         customSoundPath: null,
         animationType: 'fade', // fade, slide-up, slide-down, bounce
@@ -304,10 +304,13 @@ document.addEventListener('alpine:init', () => {
 
         addHistory(item) {
             if (!item) return;
+            console.log('[addHistory] item:', item);
+            console.log('[addHistory] followingSince:', item.followingSince);
             // Add timestamp
             const historyItem = {
                 ...item,
-                notifiedAt: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                followingSince: item.followingSince || null
             };
             this.history.unshift(historyItem);
 
@@ -361,8 +364,21 @@ document.addEventListener('alpine:init', () => {
         },
 
         formatTime(timestamp) {
+            if (!timestamp) return '-';
             const d = new Date(timestamp);
             return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        },
+
+        formatFollowTime(followingSince) {
+            if (!followingSince) return '-';
+            try {
+                let timeStr = followingSince;
+                if (timeStr.indexOf('T') === -1) timeStr = timeStr.replace(' ', 'T');
+                const d = new Date(timeStr);
+                return d.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+                return '-';
+            }
         },
 
         loadTheme() {

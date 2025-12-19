@@ -11,6 +11,7 @@
 
     <!-- 공통 CSS (테마 스위치, 업데이트 배너, 폰트 등) -->
     <link rel="stylesheet" href="/public/css/common.css">
+    <script src="/public/js/config.js"></script>
     <!-- Tauri API 호환 레이어 -->
     <script src="/public/js/tauri-api.js"></script>
     <!-- Toast UI -->
@@ -494,6 +495,26 @@
             max-height: 300px;
             overflow-y: auto;
             margin-top: 10px;
+            padding-right: 5px;
+        }
+
+        /* 커스텀 스크롤바 */
+        .history-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .history-list::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--primary-color), #00c853);
+            border-radius: 3px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #00ffa3, #00e676);
         }
 
         .history-item {
@@ -839,7 +860,7 @@
                     <img :src="item.user.profileImageUrl || '/public/default_profile.png'">
                     <div class="info">
                         <div class="nickname" x-text="item.user.nickname"></div>
-                        <div class="time" x-text="formatTime(item.timestamp)"></div>
+                        <div class="time" x-text="formatFollowTime(item.followingSince || item.timestamp)"></div>
                     </div>
                 </div>
             </template>
