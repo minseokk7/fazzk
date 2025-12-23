@@ -1,8 +1,8 @@
 document.addEventListener('alpine:init', () => {
     Alpine.data('app', () => ({
         // API Base URL
-        baseUrl: (window.FAZZK_CONFIG?.API?.BASE_URL_DEFAULT) || 'http://localhost:3000',
-        obsUrl: ((window.FAZZK_CONFIG?.API?.BASE_URL_DEFAULT) || 'http://localhost:3000') + (window.FAZZK_CONFIG?.API?.OBS_URL_PATH || '/follower'),
+        baseUrl: 'http://localhost:3000',
+        obsUrl: 'http://localhost:3000/follower',
 
         currentItem: null,
         queue: [],
@@ -15,13 +15,13 @@ document.addEventListener('alpine:init', () => {
         sessionError: false,
         isReconnecting: false,
         reconnectAttempts: 0,
-        maxReconnectAttempts: (window.FAZZK_CONFIG?.API?.RECONNECT_ATTEMPTS) || 5,
+        maxReconnectAttempts: 5,
         history: [],
 
         // Settings
-        volume: (window.FAZZK_CONFIG?.UI?.DEFAULT_VOLUME) || 0.5,
-        pollingInterval: (window.FAZZK_CONFIG?.API?.POLLING_INTERVAL_DEFAULT) || 5,
-        displayDuration: (window.FAZZK_CONFIG?.UI?.DISPLAY_DURATION_DEFAULT / 1000) || 5,
+        volume: 0.5,
+        pollingInterval: 5,
+        displayDuration: 5,
         enableTTS: false,
         customSoundPath: null,
         animationType: 'fade', // fade, slide-up, slide-down, bounce
@@ -215,32 +215,12 @@ document.addEventListener('alpine:init', () => {
                 }
 
                 if (isInitial) {
+                    // 초기 로드: 기존 팔로워를 knownFollowers에만 등록 (큐에 추가하지 않음)
                     followers.forEach(f => {
                         this.knownFollowers.add(f.user.userIdHash);
-
-                        // OBS 새로고침 시 최근 알림 누락 방지 (30초 이내)
-                        try {
-                            let timeStr = f.followingSince;
-                            if (timeStr && timeStr.indexOf('T') === -1) {
-                                timeStr = timeStr.replace(' ', 'T');
-                            }
-
-                            const followTime = new Date(timeStr).getTime();
-                            const now = Date.now();
-
-                            // 1시간 (테스트용)
-                            if (!isNaN(followTime) && (now - followTime < 3600000)) {
-                                console.log('[Initial] Recent follower:', f.user.nickname);
-                                if (!this.queue.some(item => item.user.userIdHash === f.user.userIdHash)) {
-                                    this.queue.push(f);
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('[Initial] Date check failed:', e);
-                        }
                     });
-                    console.log('[fetch] Initial:', this.knownFollowers.size);
-                    if (this.queue.length > 0) this.processQueue();
+                    console.log('[fetch] Initial followers loaded:', this.knownFollowers.size);
+                    this.loadHistory();
                     return;
                 }
 
@@ -304,12 +284,10 @@ document.addEventListener('alpine:init', () => {
 
         addHistory(item) {
             if (!item) return;
-            console.log('[addHistory] item:', item);
-            console.log('[addHistory] followingSince:', item.followingSince);
-            // Add timestamp
+            // Add timestamp and followingSince
             const historyItem = {
                 ...item,
-                timestamp: new Date().toISOString(),
+                notifiedAt: new Date().toISOString(),
                 followingSince: item.followingSince || null
             };
             this.history.unshift(historyItem);
@@ -364,11 +342,11 @@ document.addEventListener('alpine:init', () => {
         },
 
         formatTime(timestamp) {
-            if (!timestamp) return '-';
             const d = new Date(timestamp);
             return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
         },
 
+        // 팔로우 시간 포맷 (히스토리용)
         formatFollowTime(followingSince) {
             if (!followingSince) return '-';
             try {

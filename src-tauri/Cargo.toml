@@ -1,6 +1,6 @@
 [package]
 name = "fazzk-tauri"
-version = "2.3.4"
+version = "2.3.5"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -31,5 +31,4 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.7.5"
 tower-http = { version = "0.5.2", features = ["cors", "fs"] }
 futures-util = "0.3.31"
-chrono = "0.4"
 

@@ -8,6 +8,30 @@ use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
+
+/// 로그인 상태를 업데이트하는 헬퍼 함수
+fn update_login_state(
+    state: &AppState,
+    cookie_data: state::CookieData,
+    user_id_hash: String,
+) -> Result<(), String> {
+    state.cookies
+        .lock()
+        .map_err(|e| format!("쿠키 잠금 실패: {}", e))?
+        .replace(cookie_data);
+    
+    *state.login_status
+        .lock()
+        .map_err(|e| format!("로그인 상태 잠금 실패: {}", e))? = true;
+    
+    state.user_id_hash
+        .lock()
+        .map_err(|e| format!("사용자 ID 잠금 실패: {}", e))?
+        .replace(user_id_hash);
+    
+    Ok(())
+}
+
 /// 앱 시작 시 저장된 쿠키를 로드하고 검증합니다.
 #[tauri::command]
 async fn check_auto_login(
@@ -62,18 +86,7 @@ async fn check_auto_login(
             );
 
             // 3. Update Global State
-            {
-                let mut cookies = state.cookies.lock().unwrap();
-                *cookies = Some(cookie_data);
-            }
-            {
-                let mut status = state.login_status.lock().unwrap();
-                *status = true;
-            }
-            {
-                let mut hash = state.user_id_hash.lock().unwrap();
-                *hash = Some(user_id_hash.clone());
-            }
+            update_login_state(&state, cookie_data, user_id_hash.clone())?;
 
             // 4. Return user info
             Ok(serde_json::json!({
@@ -157,18 +170,7 @@ async fn manual_login(
             println!("[Command] Login verified: {} ({})", nickname, user_id_hash);
 
             // 2. Update Global State
-            {
-                let mut cookies = state.cookies.lock().unwrap();
-                *cookies = Some(cookie_data);
-            }
-            {
-                let mut status = state.login_status.lock().unwrap();
-                *status = true;
-            }
-            {
-                let mut hash = state.user_id_hash.lock().unwrap();
-                *hash = Some(user_id_hash.clone());
-            }
+            update_login_state(&state, cookie_data, user_id_hash.clone())?;
 
             // 3. Emit Success Event
             use tauri::Emitter;
@@ -212,7 +214,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // 윈도우 닫기 요청 시(X 버튼 등) 앱을 종료하지 않고 숨김
                 // 트레이 아이콘을 통해서만 완전히 종료 가능
-                window.hide().unwrap();
+                let _ = window.hide();
                 api.prevent_close();
             }
         })

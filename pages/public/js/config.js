@@ -17,11 +17,18 @@ const CONFIG = {
     // UI 및 알림 설정
     UI: {
         DISPLAY_DURATION_DEFAULT: 5000, // 밀리초
+        QUEUE_COOLDOWN_MS: 500,         // 알림 사이 쿨다운
         ANIMATION_TYPES: ['fade', 'slide-up', 'slide-down', 'bounce'],
         DEFAULT_ANIMATION: 'fade',
         DEFAULT_VOLUME: 0.5,
         DEFAULT_TEXT_SIZE: 100, // 퍼센트
         DEFAULT_TEXT_COLOR: '#ffffff'
+    },
+
+    // 팔로워 감지 설정
+    FOLLOWER: {
+        INITIAL_WINDOW_MS: 3600000,     // 초기 로드 시 최근 팔로워 감지 범위 (1시간)
+        QUEUE_EXPIRY_MS: 30000          // 큐 아이템 만료 시간
     },
 
     // 사운드 설정
