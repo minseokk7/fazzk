@@ -29,15 +29,26 @@
         const { convertFileSrc } = window.__TAURI__.core; // Tauri 2.0
 
         // Listen for manual login success from Rust backend
+        // Listen for manual login success from Rust backend
+        let isLoginSuccessHandled = false;
         listen('manual-login-success', (event) => {
+            // notifier.html에 이미 있다면 무시 (무한 루프 방지 및 중복 알림 방지)
+            if (window.location.pathname.includes('notifier.html')) {
+                console.log('[Tauri API] Login success event ignored (already on notifier)');
+                return;
+            }
+
+            if (isLoginSuccessHandled) return;
+            isLoginSuccessHandled = true;
+
             console.log('[Tauri API] Manual Login Success:', event.payload);
-            // Visual feedback
-            document.body.style.backgroundColor = '#00ffa3';
-            document.body.innerHTML = '<h1>로그인 성공! 이동 중...</h1>';
+            // Visual feedback removed as per user request
+            // Just redirect
 
             setTimeout(() => {
                 window.location.href = '/notifier.html';
-            }, 500);
+                // Flag is NOT reset here to prevent double triggering during page transition
+            }, 100);
         });
 
         // Update Progress Listener

@@ -1,18 +1,18 @@
+use crate::chzzk;
+use crate::state::{AppState, CookieData};
 use axum::{
-    extract::{State, Json},
-    response::{IntoResponse, Html},
+    extract::{Json, State},
+    http::{Method, StatusCode},
+    response::{Html, IntoResponse},
     routing::{get, post},
     Router,
-    http::{Method, StatusCode},
 };
-use std::sync::Arc;
-use tokio::net::TcpListener;
-use tauri::{AppHandle, Manager, Emitter};
-use crate::state::{AppState, CookieData};
-use crate::chzzk;
-use tower_http::services::ServeDir;
-use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::net::TcpListener;
+use tower_http::services::ServeDir;
 
 #[derive(Clone)]
 struct ServerState {
@@ -27,44 +27,51 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     // Find available port starting from 3000
     let port = find_available_port(3000).await;
     // let port = 3000; // Legacy static port
-    
+
     // Save port to state
     if let Ok(mut p) = app_state.port.lock() {
         *p = port;
     }
-    
+
     // 정적 파일 경로 (개발 vs 빌드 환경)
     // 가능한 리소스 경로들을 시도
     let resource_base = app_handle.path().resource_dir().ok();
-    
+
     let possible_paths = [
         // 개발 환경
         std::path::PathBuf::from("../pages"),
         // 빌드 환경 - 직접 pages
-        resource_base.as_ref().map(|p| p.join("pages")).unwrap_or_default(),
+        resource_base
+            .as_ref()
+            .map(|p| p.join("pages"))
+            .unwrap_or_default(),
         // 빌드 환경 - _up_ 폴더 내 pages
-        resource_base.as_ref().map(|p| p.join("_up_").join("pages")).unwrap_or_default(),
+        resource_base
+            .as_ref()
+            .map(|p| p.join("_up_").join("pages"))
+            .unwrap_or_default(),
         // 빌드 환경 - 리소스 루트에 직접
         resource_base.clone().unwrap_or_default(),
     ];
-    
-    let resource_path = possible_paths.iter()
+
+    let resource_path = possible_paths
+        .iter()
         .find(|p| p.join("notifier.html").exists())
         .cloned()
         .unwrap_or_else(|| std::path::PathBuf::from("../pages"));
-    
+
     let public_path = resource_path.join("public");
-    
+
     println!("[Server] Resource path: {:?}", resource_path);
     println!("[Server] Public path: {:?}", public_path);
-    
+
     // Build router
-    let state = ServerState { 
+    let state = ServerState {
         app_state: app_state.clone(),
         app_handle: app_handle.clone(),
         resource_path: resource_path.clone(),
     };
-    
+
     let app = Router::new()
         .nest_service("/public", ServeDir::new(&public_path))
         .route("/auth/cookies", post(receive_cookies))
@@ -79,14 +86,14 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
             CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
                 .allow_methods([Method::GET, Method::POST])
-                .allow_headers(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any),
         );
 
     println!("Starting server on port {}", port);
-    
+
     let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&addr).await.unwrap();
-    
+
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -105,12 +112,12 @@ async fn receive_cookies(
     Json(payload): Json<CookieData>,
 ) -> impl IntoResponse {
     println!("[Server] Received cookies from extension");
-    
+
     // 1. Verify cookies & Fetch User Info
     match chzzk::get_profile_id(&state.app_state.client, &payload).await {
         Ok((hash, nickname)) => {
             println!("[Server] Verified User: {} ({})", nickname, hash);
-            
+
             // 2. Update In-Memory State (AppState)
             {
                 if let Ok(mut cookies) = state.app_state.cookies.lock() {
@@ -123,7 +130,7 @@ async fn receive_cookies(
                     *status = true;
                 }
             }
-            
+
             // 3. Save to Persistent Store (session.json)
             use tauri_plugin_store::StoreExt;
             if let Ok(store) = state.app_handle.store("session.json") {
@@ -131,7 +138,7 @@ async fn receive_cookies(
                 store.set("NID_SES", serde_json::json!(payload.nid_ses));
                 // Optional: Save caching info
                 store.set("nickname", serde_json::json!(nickname));
-                
+
                 if let Err(e) = store.save() {
                     eprintln!("[Server] Failed to save session: {}", e);
                 } else {
@@ -142,24 +149,27 @@ async fn receive_cookies(
             }
 
             // 4. Emit event to frontend (Update UI immediately)
-            if let Err(e) = state.app_handle.emit("manual-login-success", serde_json::json!({
-                "nickname": nickname,
-                "userIdHash": hash
-            })) {
+            if let Err(e) = state.app_handle.emit(
+                "manual-login-success",
+                serde_json::json!({
+                    "nickname": nickname,
+                    "userIdHash": hash
+                }),
+            ) {
                 eprintln!("[Server] Failed to emit event: {}", e);
             }
-            
-            Json(serde_json::json!({ 
-                "code": 200, 
-                "message": "Success", 
-                "nickname": nickname 
+
+            Json(serde_json::json!({
+                "code": 200,
+                "message": "Success",
+                "nickname": nickname
             }))
-        },
+        }
         Err(e) => {
             eprintln!("[Server] Cookie verification failed: {}", e);
-            Json(serde_json::json!({ 
-                "code": 401, 
-                "message": format!("Verification failed: {}", e) 
+            Json(serde_json::json!({
+                "code": 401,
+                "message": format!("Verification failed: {}", e)
             }))
         }
     }
@@ -174,25 +184,30 @@ async fn get_cookies(State(state): State<ServerState>) -> impl IntoResponse {
 // Handler for GET /settings - Load settings from Tauri Store
 async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
     use tauri_plugin_store::StoreExt;
-    
+
     println!("[Server] Loading settings from Store");
-    
+
     if let Ok(store) = state.app_handle.store("settings.json") {
         // 설정 항목들을 가져오기
         let mut settings = serde_json::Map::new();
-        
+
         let keys = vec![
-            "volume", "pollingInterval", "displayDuration", 
-            "enableTTS", "customSoundPath", "animationType", 
-            "textColor", "textSize"
+            "volume",
+            "pollingInterval",
+            "displayDuration",
+            "enableTTS",
+            "customSoundPath",
+            "animationType",
+            "textColor",
+            "textSize",
         ];
-        
+
         for key in keys {
             if let Some(value) = store.get(key) {
                 settings.insert(key.to_string(), value.clone());
             }
         }
-        
+
         if settings.is_empty() {
             // 기본 설정 반환
             Json(serde_json::json!({
@@ -229,21 +244,23 @@ async fn save_settings(
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     use tauri_plugin_store::StoreExt;
-    
+
     println!("[Server] Saving settings to Store");
-    
+
     if let Ok(store) = state.app_handle.store("settings.json") {
         // payload가 객체인 경우 각 항목을 저장
         if let Some(obj) = payload.as_object() {
             for (key, value) in obj {
                 store.set(key, value.clone());
             }
-            
+
             if let Err(e) = store.save() {
                 eprintln!("[Server] Failed to save settings: {}", e);
-                return Json(serde_json::json!({ "success": false, "error": "Failed to save settings" }));
+                return Json(
+                    serde_json::json!({ "success": false, "error": "Failed to save settings" }),
+                );
             }
-            
+
             println!("[Server] Settings saved successfully");
             Json(serde_json::json!({ "success": true }))
         } else {
@@ -258,39 +275,40 @@ async fn save_settings(
 async fn serve_notifier_html(State(state): State<ServerState>) -> impl IntoResponse {
     let html_path = state.resource_path.join("notifier.html");
     println!("[Server] Serving notifier.html from: {:?}", html_path);
-    
+
     match std::fs::read_to_string(&html_path) {
         Ok(html) => Html(html).into_response(),
         Err(e) => {
-            eprintln!("[Server] notifier.html not found: {:?}, error: {}", html_path, e);
+            eprintln!(
+                "[Server] notifier.html not found: {:?}, error: {}",
+                html_path, e
+            );
             (StatusCode::NOT_FOUND, "notifier.html not found").into_response()
         }
     }
 }
 
 // Handler for GET /followers (Polling)
-async fn get_followers(
-    State(state): State<ServerState>,
-) -> impl IntoResponse {
+async fn get_followers(State(state): State<ServerState>) -> impl IntoResponse {
     let app_state = &state.app_state;
     let mut real_followers: Vec<crate::chzzk::FollowerItem> = Vec::new();
-    
+
     // 1. Fetch from Chzzk API
     let (cookies, user_id_hash) = {
         let cookies_lock = app_state.cookies.lock().unwrap();
         let hash_lock = app_state.user_id_hash.lock().unwrap();
         (cookies_lock.clone(), hash_lock.clone())
     };
-    
+
     // ... (rest of function logic needs app_state usage)
 
     if let (Some(cookies), Some(hash)) = (cookies, user_id_hash) {
         match chzzk::get_followers(&app_state.client, &cookies, &hash).await {
             Ok(response) => {
                 if let Some(content) = response.content {
-                   real_followers = content.data;
+                    real_followers = content.data;
                 }
-            },
+            }
             Err(e) => {
                 println!("[Server] Failed to fetch followers: {}", e);
                 // Continue to serve test queue even if API fails
@@ -298,14 +316,18 @@ async fn get_followers(
         }
     }
 
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
 
     // 2. Process New Followers
     if !real_followers.is_empty() {
         let mut known = app_state.known_followers.lock().unwrap();
         let mut real_queue = app_state.real_queue.lock().unwrap();
-        
-        let current_hashes: std::collections::HashSet<String> = real_followers.iter()
+
+        let current_hashes: std::collections::HashSet<String> = real_followers
+            .iter()
             .map(|f| f.user.user_id_hash.clone())
             .collect();
 
@@ -317,7 +339,7 @@ async fn get_followers(
             if !known.contains(&follower.user.user_id_hash) {
                 known.insert(follower.user.user_id_hash.clone());
                 println!("[Server] New follower detected: {}", follower.user.nickname);
-                
+
                 real_queue.push_back(crate::state::RealFollowerQueueItem {
                     follower: follower.clone(),
                     created_at: now,
@@ -328,8 +350,11 @@ async fn get_followers(
 
     // 3. Cleanup Queues
     {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-        
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
         // Clean Real Queue
         let mut real_queue = app_state.real_queue.lock().unwrap();
         while let Some(item) = real_queue.front() {
@@ -339,7 +364,7 @@ async fn get_followers(
                 break;
             }
         }
-        
+
         // Clean Test Queue
         let mut test_queue = app_state.test_queue.lock().unwrap();
         while let Some(item) = test_queue.front() {
@@ -349,21 +374,21 @@ async fn get_followers(
             // Actually, `test_queue` stores `FollowerItem` which has `following_since`.
             // Let's assume test items expire in 30 seconds too.
             // For simplicity, we can rely on the fact that test_follower adds items with current timestamp key.
-            
+
             // Or simpler: Test items are removed after 30 seconds.
             // Parsing "test_{ts}" from userIdHash
             if let Some(ts_str) = item.user.user_id_hash.strip_prefix("test_") {
-                 if let Ok(ts) = ts_str.parse::<u128>() {
-                     if now - ts > 30000 {
-                         test_queue.pop_front();
-                         continue;
-                     }
-                 }
+                if let Ok(ts) = ts_str.parse::<u128>() {
+                    if now - ts > 30000 {
+                        test_queue.pop_front();
+                        continue;
+                    }
+                }
             }
             break;
         }
     }
-    
+
     // 4. Combine Queues (Test + Real)
     let mut combined_data = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -393,7 +418,7 @@ async fn get_followers(
     // Add remaining history from API (if not seen)
     for f in real_followers {
         if !seen.contains(&f.user.user_id_hash) {
-             combined_data.push(f);
+            combined_data.push(f);
         }
     }
 
@@ -409,23 +434,30 @@ async fn get_followers(
 }
 
 // Handler for POST /test-follower
-async fn test_follower(
-    State(state): State<ServerState>,
-) -> impl IntoResponse {
+async fn test_follower(State(state): State<ServerState>) -> impl IntoResponse {
     let app_state = &state.app_state;
     // ...
-    let now_str = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().to_string();
+    let now_str = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        .to_string();
+    // Generate current timestamp in ISO 8601 format (UTC) with Timezone info
+    let now = SystemTime::now();
+    let datetime: chrono::DateTime<chrono::Utc> = now.into();
+    let now_iso = datetime.to_rfc3339(); // e.g. 2023-01-01T00:00:00+00:00
+
     let test_item = crate::chzzk::FollowerItem {
         user: crate::chzzk::User {
             user_id_hash: format!("test_{}", now_str),
             nickname: "테스트 유저".to_string(),
             profile_image_url: None,
         },
-        following_since: "2024-01-01T00:00:00".to_string(), // ISO String mock
+        following_since: now_iso,
     };
 
     println!("[Server] Test follower added: {}", test_item.user.nickname);
-    
+
     let mut queue = app_state.test_queue.lock().unwrap();
     queue.push_back(test_item);
 

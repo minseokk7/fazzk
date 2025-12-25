@@ -185,9 +185,10 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        startPolling() {
+        async startPolling() {
             console.log('[startPolling] interval:', this.pollingInterval);
-            this.fetchFollowers(true);
+            // Wait for initial load to complete to prevent race conditions
+            await this.fetchFollowers(true);
             this.scheduleNextPoll();
         },
 
@@ -203,7 +204,16 @@ document.addEventListener('alpine:init', () => {
             this.scheduleNextPoll();
         },
 
+        isFetching: false, // Lock for fetch
+
         async fetchFollowers(isInitial = false) {
+            // Prevent parallel fetches (Race condition fix)
+            if (this.isFetching) {
+                console.log('[fetch] Update skipped (already fetching)');
+                return;
+            }
+            this.isFetching = true;
+
             try {
                 const response = await fetch(`${this.baseUrl}/followers?_t=${Date.now()}`);
                 if (!response.ok) return;
@@ -238,6 +248,8 @@ document.addEventListener('alpine:init', () => {
                 }
             } catch (error) {
                 console.error('[fetch] ERR:', error);
+            } finally {
+                this.isFetching = false;
             }
         },
 
@@ -287,6 +299,7 @@ document.addEventListener('alpine:init', () => {
             // Add timestamp and followingSince
             const historyItem = {
                 ...item,
+                _id: Date.now() + Math.random().toString(36).substr(2, 9), // Unique ID for Alpine :key
                 notifiedAt: new Date().toISOString(),
                 followingSince: item.followingSince || null
             };
@@ -308,6 +321,12 @@ document.addEventListener('alpine:init', () => {
             if (saved) {
                 try {
                     this.history = JSON.parse(saved);
+                    // Backfill missing IDs (migration)
+                    this.history.forEach(item => {
+                        if (!item._id) {
+                            item._id = Date.now() + Math.random().toString(36).substr(2, 9);
+                        }
+                    });
                 } catch (e) {
                     console.error('[History] Load failed:', e);
                     this.history = [];
