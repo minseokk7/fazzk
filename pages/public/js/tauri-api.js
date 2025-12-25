@@ -150,11 +150,11 @@
             // === 로그인 ===
             startLogin: async () => {
                 try {
-                    await invoke('open_browser_url', { url: 'https://chzzk.naver.com' })
-                        .catch(() => window.open('https://chzzk.naver.com', '_blank'));
-                } catch (e) {
-                    // Fallback if plugin logic is missing, just open external
                     await open('https://chzzk.naver.com');
+                } catch (e) {
+                    console.error('[Tauri API] startLogin failed:', e);
+                    // Fallback
+                    window.open('https://chzzk.naver.com', '_blank');
                 }
             },
             manualLogin: async (nid_aut, nid_ses) => {
