@@ -119,6 +119,12 @@ document.addEventListener('alpine:init', () => {
         },
 
         async saveSettings() {
+            // Enforce minimum 5 seconds
+            if (this.pollingInterval < 5) {
+                this.pollingInterval = 5;
+                if (window.Toast) window.Toast.info('갱신 주기가 최소 5초로 설정되었습니다.');
+            }
+
             // Save to LocalStorage (Backup)
             const s = localStorage;
             s.setItem('volume', this.volume);

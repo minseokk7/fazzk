@@ -828,8 +828,9 @@
 
         <!-- Polling Interval -->
         <div class="form-group">
-            <label>갱신 주기 (초)</label>
-            <input type="number" class="form-control" min="3" x-model="pollingInterval">
+            <label>갱신 주기 (<span x-text="pollingInterval"></span>초)</label>
+            <input type="range" min="5" max="60" step="1" x-model="pollingInterval">
+            <p style="font-size:0.8rem; color:#aaa; margin-top:5px;">* 최소 5초 이상 권장 (서버 보호)</p>
         </div>
 
         <!-- TTS -->

@@ -251,6 +251,28 @@ async fn save_settings(
         // payload가 객체인 경우 각 항목을 저장
         if let Some(obj) = payload.as_object() {
             for (key, value) in obj {
+                // Enforce minimum polling interval of 5 seconds
+                if key == "pollingInterval" {
+                    if let Some(interval) = value.as_u64() {
+                        if interval < 5 {
+                            eprintln!(
+                                "[Server] Polling interval too low ({}), clamping to 5s",
+                                interval
+                            );
+                            store.set(key, serde_json::json!(5));
+                            continue;
+                        }
+                    } else if let Some(interval) = value.as_f64() {
+                        if interval < 5.0 {
+                            eprintln!(
+                                "[Server] Polling interval too low ({}), clamping to 5s",
+                                interval
+                            );
+                            store.set(key, serde_json::json!(5));
+                            continue;
+                        }
+                    }
+                }
                 store.set(key, value.clone());
             }
 
