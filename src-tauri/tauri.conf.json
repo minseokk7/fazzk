@@ -1,62 +1,62 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Fazzk",
-  "version": "2.3.6",
-  "identifier": "com.dodoroi.fazzk",
-  "build": {
-    "frontendDist": "../pages"
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://github.com/minseok7891/fazzk/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2OTAzOTlGOUYwNTQ4MEEKUldRS1NBV2Zuem1RNW9uM1BrdGFqYmsrbnV3ZXJEY2F2TTF0WXpqS2lZcUpsVGR2dXpEbkZFbGYK"
-    }
-  },
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "Fazzk",
-        "width": 1024,
-        "height": 768,
-        "resizable": true,
-        "decorations": false
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* https://*.naver.com https://*.github.com; img-src 'self' data: https://*.pstatic.net https://*.naver.net https://*.game.naver.com; style-src 'self' 'unsafe-inline'; media-src 'self' asset: https://*.pstatic.net"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": [
-      "nsis"
-    ],
-    "resources": [
-      "../pages/**/*"
-    ],
-    "icon": [
-      "icon.ico",
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/256x256.png",
-      "icons/512x512.png",
-      "icons/icon.icns"
-    ],
-    "windows": {
-      "nsis": {
-        "installerIcon": "icon.ico",
-        "headerImage": "icons/installer-header.bmp",
-        "sidebarImage": "icons/installer-sidebar.bmp",
-        "languages": [
-          "Korean"
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Fazzk",
+    "version": "2.3.6",
+    "identifier": "com.dodoroi.fazzk",
+    "build": {
+        "frontendDist": "../pages"
+    },
+    "plugins": {
+        "updater": {
+            "endpoints": [
+                "https://github.com/minseok7891/fazzk/releases/latest/download/latest.json"
+            ],
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVBQ0FGNkE2QTVDM0QyNDkKUldSSjBzT2xwdmJLNmkycHJaN0p2Z0FqSmdXNW9kYkpYTk5KSHBhR2RDSS93d3hKM0hvdU9CQWIK"
+        }
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "title": "Fazzk",
+                "width": 1024,
+                "height": 768,
+                "resizable": true,
+                "decorations": false
+            }
         ],
-        "displayLanguageSelector": false,
-        "installMode": "currentUser"
-      }
+        "security": {
+            "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* https://*.naver.com https://*.github.com; img-src 'self' data: https://*.pstatic.net https://*.naver.net https://*.game.naver.com; style-src 'self' 'unsafe-inline'; media-src 'self' asset: https://*.pstatic.net"
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": [
+            "nsis"
+        ],
+        "resources": [
+            "../pages/**/*"
+        ],
+        "icon": [
+            "icon.ico",
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/256x256.png",
+            "icons/512x512.png",
+            "icons/icon.icns"
+        ],
+        "windows": {
+            "nsis": {
+                "installerIcon": "icon.ico",
+                "headerImage": "icons/installer-header.bmp",
+                "sidebarImage": "icons/installer-sidebar.bmp",
+                "languages": [
+                    "Korean"
+                ],
+                "displayLanguageSelector": false,
+                "installMode": "currentUser"
+            }
+        }
     }
-  }
 }
