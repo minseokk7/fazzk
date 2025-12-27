@@ -126,7 +126,7 @@
     showUpdateModal = true;
   }
 
-  async function startDownload() {
+  async function startAutoUpdate() {
     if (!currentDownloadUrl || isDownloading) return;
     isDownloading = true;
 
@@ -139,8 +139,8 @@
     try {
       await api.downloadUpdate(currentDownloadUrl);
     } catch (e) {
-      console.error("Download failed:", e);
-      alert("다운로드 실패: " + e);
+      console.error("Auto update failed:", e);
+      alert("자동 업데이트 실패: " + e);
       isDownloading = false;
     }
   }
@@ -319,8 +319,8 @@
               <div class="modal-progress-text">
                 <span
                   >{downloadProgress < 100
-                    ? "다운로드 중..."
-                    : "설치 중..."}</span
+                    ? "업데이트 다운로드 중..."
+                    : "업데이트 설치 중..."}</span
                 >
                 <span>{downloadProgress}%</span>
               </div>
@@ -335,16 +335,16 @@
             <div class="update-buttons">
               <button
                 class="update-btn-primary"
-                onclick={startDownload}
+                onclick={startAutoUpdate}
                 disabled={!updateData}
               >
-                <span>다운로드</span>
+                <span>자동 업데이트</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-width="2"
-                    d="M17 8l4 4m0 0l-4 4m4-4H3"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                   ></path>
                 </svg>
               </button>
