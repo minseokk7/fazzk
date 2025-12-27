@@ -29,6 +29,7 @@ pub struct AppState {
     pub test_queue: Mutex<VecDeque<FollowerItem>>,
     pub real_queue: Mutex<VecDeque<RealFollowerQueueItem>>,
     pub known_followers: Mutex<HashSet<String>>,
+    pub rublis_last_seen: Mutex<Option<u128>>, // 루블리스 마지막 확인 시간
     pub client: reqwest::Client,
 }
 
@@ -42,6 +43,7 @@ impl Default for AppState {
             test_queue: Mutex::new(VecDeque::new()),
             real_queue: Mutex::new(VecDeque::new()),
             known_followers: Mutex::new(HashSet::new()),
+            rublis_last_seen: Mutex::new(None),
             client: reqwest::Client::new(),
         }
     }

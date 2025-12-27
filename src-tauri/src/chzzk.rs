@@ -100,7 +100,7 @@ pub async fn get_followers(client: &reqwest::Client, cookies: &CookieData, user_
     }
     
     let body_text = res.text().await.map_err(|e| e.to_string())?;
-    println!("[Chzzk API] Raw Response: {}", &body_text.chars().take(500).collect::<String>());
+    println!("[Chzzk API] Raw Response: {}", &body_text.chars().take(2000).collect::<String>());
     
     let body: FollowerResponse = serde_json::from_str(&body_text).map_err(|e| {
         eprintln!("[Chzzk API] Parse Error: {}", e);

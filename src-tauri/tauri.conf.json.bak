@@ -1,12 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Fazzk",
-  "version": "2.5.0",
+  "version": "2.4.0",
   "identifier": "com.dodoroi.fazzk",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "npm run build --prefix ../pages-svelte",
-    "frontendDist": "../pages-svelte/dist"
+    "frontendDist": "../pages"
   },
   "plugins": {
     "updater": {
@@ -37,7 +35,7 @@
       "nsis"
     ],
     "resources": [
-      "../pages-svelte/dist/**/*"
+      "../pages/**/*"
     ],
     "icon": [
       "icon.ico",

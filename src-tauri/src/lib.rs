@@ -2,6 +2,7 @@ pub mod chzzk;
 pub mod server;
 pub mod state;
 pub mod updater;
+pub mod websocket;
 
 use state::AppState;
 use std::sync::Arc;
