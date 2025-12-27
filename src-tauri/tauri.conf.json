@@ -5,7 +5,8 @@
   "identifier": "com.dodoroi.fazzk",
   "build": {
     "beforeDevCommand": "",
-    "beforeBuildCommand": "npm run build --prefix ../pages-svelte",
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
     "frontendDist": "../pages-svelte/dist"
   },
   "plugins": {
