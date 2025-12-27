@@ -17,6 +17,7 @@
   let currentDownloadUrl = $state("");
   let isDownloading = $state(false);
   let downloadProgress = $state(0);
+  let currentAppVersion = $state("2.5.0"); // 기본값
 
   onMount(async () => {
     // 다크 테마를 기본으로 설정
@@ -32,6 +33,14 @@
         console.log("[Login] Manual login success", event.payload);
         push("/notifier");
       });
+    }
+
+    // 앱 버전 가져오기
+    try {
+      currentAppVersion = await api.getAppVersion();
+      console.log("[Login] Current app version:", currentAppVersion);
+    } catch (e) {
+      console.error("[Login] Failed to get app version:", e);
     }
 
     // 업데이트 체크
@@ -275,7 +284,7 @@
                 {#if updateData}
                   {updateData.current_version} → {updateData.latest_version}
                 {:else}
-                  v2.4.0
+                  v{currentAppVersion}
                 {/if}
               </p>
             </div>
