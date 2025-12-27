@@ -5,7 +5,7 @@
   "identifier": "com.dodoroi.fazzk",
   "build": {
     "beforeDevCommand": "",
-    "beforeBuildCommand": "powershell -Command \"Set-Location ../pages-svelte; npm run build\"",
+    "beforeBuildCommand": "powershell -Command \"Set-Location ../pages-svelte; npm run build; Set-Location ..; npm run zip-extensions\"",
     "beforeDevCommand": "",
     "frontendDist": "../pages-svelte/dist"
   },
