@@ -67,7 +67,7 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     start_follower_monitoring(app_state.clone(), ws_manager.clone()).await;
 
     // 정적 파일 경로 (개발 vs 빌드 환경)
-    // 통합 후 경로 수정: dist 폴더가 루트에 위치
+    // Tauri 2.0에서는 frontendDist가 자동으로 처리됨
     let resource_base = app_handle.path().resource_dir().ok();
 
     let possible_paths = [
@@ -75,12 +75,12 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         std::path::PathBuf::from("../dist"),
         // 개발 환경 - 직접 dist도 시도
         std::path::PathBuf::from("dist"),
-        // 빌드 환경 - 직접 dist
+        // 빌드 환경 - 리소스 디렉토리에서 dist 찾기
         resource_base
             .as_ref()
             .map(|p| p.join("dist"))
             .unwrap_or_default(),
-        // 빌드 환경 - 리소스 루트에 직접
+        // 빌드 환경 - 리소스 루트 자체가 dist일 수 있음
         resource_base.clone().unwrap_or_default(),
     ];
 
@@ -88,7 +88,14 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         .iter()
         .find(|p| p.join("index.html").exists())
         .cloned()
-        .unwrap_or_else(|| std::path::PathBuf::from("../dist"));
+        .unwrap_or_else(|| {
+            // 최후의 수단: Tauri의 기본 리소스 경로 사용
+            if let Some(base) = &resource_base {
+                base.clone()
+            } else {
+                std::path::PathBuf::from("../dist")
+            }
+        });
 
     let public_path = resource_path.join("public");
 
