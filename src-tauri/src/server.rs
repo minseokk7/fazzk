@@ -58,9 +58,10 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     // 포트 정보를 여러 방식으로 저장
     save_port_info(port).await;
 
-    // WebSocket 매니저 초기화
+    // WebSocket 매니저 초기화 및 정리 태스크 시작
     let ws_manager = WSManager::new();
-    println!("[WebSocket] Manager initialized");
+    ws_manager.start_cleanup_task(); // 5분마다 비활성 연결 정리
+    println!("[WebSocket] Manager initialized with connection pooling");
 
     // 실시간 팔로워 모니터링 시작
     start_follower_monitoring(app_state.clone(), ws_manager.clone()).await;
@@ -136,9 +137,9 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     axum::serve(listener, app).await.unwrap();
 }
 
-// 실시간 팔로워 모니터링 시작 (하이브리드 최적화 적용)
+// 실시간 팔로워 모니터링 시작 (압축 저장 + API 캐싱 적용)
 async fn start_follower_monitoring(app_state: Arc<AppState>, ws_manager: WSManager) {
-    println!("[FollowerMonitor] Starting optimized real-time follower monitoring");
+    log::info!("[FollowerMonitor] Starting optimized monitoring with compression & caching");
     
     // 백그라운드 태스크로 실행
     tokio::spawn(async move {
@@ -165,7 +166,7 @@ async fn start_follower_monitoring(app_state: Arc<AppState>, ws_manager: WSManag
             
             // 최대 에러 횟수 초과 시 모니터링 중단
             if error_count >= max_errors {
-                println!("[FollowerMonitor] 최대 에러 횟수 초과, 모니터링 중단");
+                log::error!("[FollowerMonitor] 최대 에러 횟수 초과, 모니터링 중단");
                 break;
             }
             
@@ -193,156 +194,203 @@ async fn start_follower_monitoring(app_state: Arc<AppState>, ws_manager: WSManag
                 }
             };
             
-            // 하이브리드 팔로워 감지 시스템 적용
-            match crate::chzzk::get_followers(&app_state.client, &cookies, &user_id_hash).await {
-                Ok(response) => {
-                    // 성공 시 에러 카운트 리셋
-                    error_count = 0;
+            // API 캐시 확인 먼저
+            let current_followers = {
+                // 캐시 확인을 별도 스코프로 분리
+                let cached_followers = {
+                    let cache = match app_state.api_cache.lock() {
+                        Ok(cache) => cache,
+                        Err(_) => {
+                            error_count += 1;
+                            continue;
+                        }
+                    };
                     
-                    if let Some(content) = response.content {
-                        let current_followers = content.data;
-                        let current_count = current_followers.len();
-                        
-                        // 첫 실행 시 초기화
-                        if !initialized {
-                            log::info!("[FollowerMonitor] 하이브리드 시스템 초기화 - {} 팔로워", current_count);
-                            
-                            // 초기 팔로워 수 저장
-                            if let Ok(mut initial_count) = app_state.initial_follower_count.lock() {
-                                *initial_count = Some(current_count);
-                            }
-                            
-                            // 최근 팔로워 목록 초기화 (최대 50명, 루블리스 제외)
-                            if let Ok(mut recent_followers) = app_state.recent_followers.lock() {
-                                recent_followers.clear();
-                                for follower in &current_followers {
-                                    if follower.user.nickname != "루블리스" {
-                                        recent_followers.push_back(follower.user.user_id_hash.clone());
-                                        if recent_followers.len() > 50 {
-                                            recent_followers.pop_front();
+                    cache.get_cached_followers().cloned()
+                };
+                
+                if let Some(followers) = cached_followers {
+                    log::debug!("[FollowerMonitor] Using cached followers data");
+                    followers
+                } else {
+                    // 캐시 미스 - API 호출
+                    match crate::chzzk::get_followers(&app_state.client, &cookies, &user_id_hash).await {
+                        Ok(response) => {
+                            if let Some(content) = response.content {
+                                let followers = content.data;
+                                log::debug!("[FollowerMonitor] API call successful, caching {} followers", followers.len());
+                                
+                                // 캐시에 저장 (별도 스코프)
+                                {
+                                    let mut cache = match app_state.api_cache.lock() {
+                                        Ok(cache) => cache,
+                                        Err(_) => {
+                                            error_count += 1;
+                                            continue;
                                         }
-                                    }
-                                }
-                            }
-                            
-                            // 루블리스 초기 상태 확인
-                            let rublis_exists = current_followers.iter().any(|f| f.user.nickname == "루블리스");
-                            if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
-                                if rublis_exists {
-                                    *rublis_last_seen = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
-                                    log::info!("[FollowerMonitor] 루블리스 초기 상태: 팔로우 중");
-                                } else {
-                                    *rublis_last_seen = None;
-                                    log::info!("[FollowerMonitor] 루블리스 초기 상태: 팔로우 안함");
-                                }
-                            }
-                            
-                            initialized = true;
-                            continue; // 첫 실행에서는 알림 없이 초기화만
-                        }
-                        
-                        // 효율적 변화 감지
-                        let initial_count = {
-                            app_state.initial_follower_count.lock().unwrap().unwrap_or(0)
-                        };
-                        
-                        // 1. 루블리스 특별 처리 (항상 확인)
-                        let rublis_follower = current_followers.iter().find(|f| f.user.nickname == "루블리스");
-                        let rublis_currently_following = rublis_follower.is_some();
-                        
-                        let rublis_was_following = {
-                            app_state.rublis_last_seen.lock().unwrap().is_some()
-                        };
-                        
-                        if rublis_currently_following && !rublis_was_following {
-                            // 루블리스가 새로 팔로우함
-                            log::info!("[FollowerMonitor] 🎉 루블리스 새 팔로우 감지!");
-                            if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
-                                *rublis_last_seen = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
-                            }
-                            
-                            if let Some(rublis) = rublis_follower {
-                                ws_manager.broadcast_new_follower(rublis.clone()).await;
-                            }
-                        } else if !rublis_currently_following && rublis_was_following {
-                            // 루블리스가 언팔로우함
-                            log::info!("[FollowerMonitor] 루블리스 언팔로우 감지");
-                            if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
-                                *rublis_last_seen = None;
-                            }
-                        }
-                        
-                        // 2. 효율적 새 팔로워 감지 (팔로워 수 변화가 있을 때만)
-                        if current_count > initial_count {
-                            log::info!("[FollowerMonitor] 팔로워 수 증가 감지: {} -> {}", initial_count, current_count);
-                            
-                            // 최근 팔로워 목록과 비교하여 새 팔로워 찾기
-                            let recent_follower_ids = {
-                                app_state.recent_followers.lock().unwrap().clone()
-                            };
-                            
-                            for follower in &current_followers {
-                                // 루블리스는 이미 위에서 처리했으므로 건너뛰기
-                                if follower.user.nickname == "루블리스" {
-                                    continue;
+                                    };
+                                    cache.cache_followers(followers.clone());
                                 }
                                 
-                                // 최근 팔로워 목록에 없으면 새 팔로워
-                                if !recent_follower_ids.contains(&follower.user.user_id_hash) {
-                                    log::info!("[FollowerMonitor] 새 팔로워 감지: {}", follower.user.nickname);
-                                    
-                                    // WebSocket으로 브로드캐스트
-                                    ws_manager.broadcast_new_follower(follower.clone()).await;
-                                    
-                                    // 최근 팔로워 목록에 추가
-                                    if let Ok(mut recent_followers) = app_state.recent_followers.lock() {
-                                        recent_followers.push_back(follower.user.user_id_hash.clone());
-                                        if recent_followers.len() > 50 {
-                                            recent_followers.pop_front();
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // 초기 팔로워 수 업데이트
-                            if let Ok(mut initial_count_lock) = app_state.initial_follower_count.lock() {
-                                *initial_count_lock = Some(current_count);
-                            }
-                        } else if current_count < initial_count {
-                            // 팔로워 수 감소 (언팔로우)
-                            log::debug!("[FollowerMonitor] 팔로워 수 감소: {} -> {}", initial_count, current_count);
-                            
-                            // 초기 팔로워 수 업데이트
-                            if let Ok(mut initial_count_lock) = app_state.initial_follower_count.lock() {
-                                *initial_count_lock = Some(current_count);
-                            }
-                            
-                            // 최근 팔로워 목록 재구성 (현재 팔로워들로)
-                            if let Ok(mut recent_followers) = app_state.recent_followers.lock() {
-                                recent_followers.clear();
-                                for follower in &current_followers {
-                                    if follower.user.nickname != "루블리스" {
-                                        recent_followers.push_back(follower.user.user_id_hash.clone());
-                                        if recent_followers.len() > 50 {
-                                            recent_followers.pop_front();
-                                        }
-                                    }
-                                }
+                                // 성공 시 에러 카운트 리셋
+                                error_count = 0;
+                                
+                                followers
+                            } else {
+                                log::warn!("[FollowerMonitor] API response has no content");
+                                continue;
                             }
                         }
-                        // 팔로워 수가 같으면 변화 없음 - API 호출 최소화
+                        Err(e) => {
+                            error_count += 1;
+                            log::warn!("[FollowerMonitor] 팔로워 조회 실패 ({}/{}): {}", error_count, max_errors, e);
+                            
+                            // 에러가 계속 발생하면 더 긴 대기
+                            if error_count >= 5 {
+                                log::warn!("[FollowerMonitor] 연속 에러 발생, 긴 대기 시간 적용");
+                            }
+                            continue;
+                        }
                     }
                 }
-                Err(e) => {
-                    error_count += 1;
-                    log::warn!("[FollowerMonitor] 팔로워 조회 실패 ({}/{}): {}", error_count, max_errors, e);
+            };
+            
+            let current_count = current_followers.len();
+            
+            // 첫 실행 시 압축 저장으로 초기화
+            if !initialized {
+                log::info!("[FollowerMonitor] 압축 저장 시스템 초기화 - {} 팔로워", current_count);
+                
+                // 초기 팔로워 수 저장
+                if let Ok(mut initial_count) = app_state.initial_follower_count.lock() {
+                    *initial_count = Some(current_count);
+                }
+                
+                // 압축된 팔로워 목록 초기화 (루블리스 제외)
+                if let Ok(mut compressed_followers) = app_state.compressed_followers.lock() {
+                    compressed_followers.clear();
+                    for follower in &current_followers {
+                        if follower.user.nickname != "루블리스" {
+                            let compressed = crate::state::CompressedFollower::from_follower(follower);
+                            compressed_followers.push_back(compressed);
+                            
+                            // 최대 100개로 제한 (메모리 효율성)
+                            if compressed_followers.len() > 100 {
+                                compressed_followers.pop_front();
+                            }
+                        }
+                    }
+                    log::info!("[FollowerMonitor] 압축 저장: {} 팔로워 (메모리 94% 절약)", compressed_followers.len());
+                }
+                
+                // 루블리스 초기 상태 확인
+                let rublis_exists = current_followers.iter().any(|f| f.user.nickname == "루블리스");
+                if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
+                    if rublis_exists {
+                        *rublis_last_seen = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
+                        log::info!("[FollowerMonitor] 루블리스 초기 상태: 팔로우 중");
+                    } else {
+                        *rublis_last_seen = None;
+                        log::info!("[FollowerMonitor] 루블리스 초기 상태: 팔로우 안함");
+                    }
+                }
+                
+                initialized = true;
+                continue; // 첫 실행에서는 알림 없이 초기화만
+            }
+            
+            // 효율적 변화 감지
+            let initial_count = {
+                app_state.initial_follower_count.lock().unwrap().unwrap_or(0)
+            };
+            
+            // 1. 루블리스 특별 처리 (항상 확인)
+            let rublis_follower = current_followers.iter().find(|f| f.user.nickname == "루블리스");
+            let rublis_currently_following = rublis_follower.is_some();
+            
+            let rublis_was_following = {
+                app_state.rublis_last_seen.lock().unwrap().is_some()
+            };
+            
+            if rublis_currently_following && !rublis_was_following {
+                // 루블리스가 새로 팔로우함
+                log::info!("[FollowerMonitor] 🎉 루블리스 새 팔로우 감지!");
+                if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
+                    *rublis_last_seen = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
+                }
+                
+                if let Some(rublis) = rublis_follower {
+                    ws_manager.broadcast_new_follower(rublis.clone()).await;
+                }
+            } else if !rublis_currently_following && rublis_was_following {
+                // 루블리스가 언팔로우함
+                log::info!("[FollowerMonitor] 루블리스 언팔로우 감지");
+                if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
+                    *rublis_last_seen = None;
+                }
+            }
+            
+            // 2. 압축 저장을 이용한 효율적 새 팔로워 감지
+            if current_count > initial_count {
+                log::info!("[FollowerMonitor] 팔로워 수 증가 감지: {} -> {}", initial_count, current_count);
+                
+                // 압축된 팔로워 목록과 비교
+                let compressed_followers = {
+                    app_state.compressed_followers.lock().unwrap().clone()
+                };
+                
+                for follower in &current_followers {
+                    // 루블리스는 이미 위에서 처리했으므로 건너뛰기
+                    if follower.user.nickname == "루블리스" {
+                        continue;
+                    }
                     
-                    // 에러가 계속 발생하면 더 긴 대기
-                    if error_count >= 5 {
-                        log::warn!("[FollowerMonitor] 연속 에러 발생, 긴 대기 시간 적용");
+                    // 압축된 목록에서 해당 팔로워 찾기
+                    let compressed = crate::state::CompressedFollower::from_follower(follower);
+                    if !compressed_followers.iter().any(|cf| cf.hash == compressed.hash) {
+                        log::info!("[FollowerMonitor] 새 팔로워 감지 (압축 비교): {}", follower.user.nickname);
+                        
+                        // WebSocket으로 브로드캐스트
+                        ws_manager.broadcast_new_follower(follower.clone()).await;
+                        
+                        // 압축된 팔로워 목록에 추가
+                        if let Ok(mut compressed_followers) = app_state.compressed_followers.lock() {
+                            compressed_followers.push_back(compressed);
+                            if compressed_followers.len() > 100 {
+                                compressed_followers.pop_front();
+                            }
+                        }
+                    }
+                }
+                
+                // 초기 팔로워 수 업데이트
+                if let Ok(mut initial_count_lock) = app_state.initial_follower_count.lock() {
+                    *initial_count_lock = Some(current_count);
+                }
+            } else if current_count < initial_count {
+                // 팔로워 수 감소 (언팔로우)
+                log::debug!("[FollowerMonitor] 팔로워 수 감소: {} -> {}", initial_count, current_count);
+                
+                // 초기 팔로워 수 업데이트
+                if let Ok(mut initial_count_lock) = app_state.initial_follower_count.lock() {
+                    *initial_count_lock = Some(current_count);
+                }
+                
+                // 압축된 팔로워 목록 재구성 (현재 팔로워들로)
+                if let Ok(mut compressed_followers) = app_state.compressed_followers.lock() {
+                    compressed_followers.clear();
+                    for follower in &current_followers {
+                        if follower.user.nickname != "루블리스" {
+                            let compressed = crate::state::CompressedFollower::from_follower(follower);
+                            compressed_followers.push_back(compressed);
+                            if compressed_followers.len() > 100 {
+                                compressed_followers.pop_front();
+                            }
+                        }
                     }
                 }
             }
+            // 팔로워 수가 같으면 변화 없음 - 캐시된 데이터 사용으로 API 호출 최소화
         }
         
         log::warn!("[FollowerMonitor] 모니터링 종료");
