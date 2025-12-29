@@ -4,6 +4,15 @@
 
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
+
+/// 전역 HTTP 클라이언트 (재사용)
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// HTTP 클라이언트 가져오기
+fn get_http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| reqwest::Client::new())
+}
 
 /// GitHub 저장소 정보
 const GITHUB_OWNER: &str = "minseok7891";
@@ -84,7 +93,7 @@ async fn get_latest_release() -> Result<GitHubRelease, String> {
         HeaderValue::from_static("application/vnd.github.v3+json"),
     );
 
-    let client = reqwest::Client::new();
+    let client = get_http_client();
     let res = client
         .get(&url)
         .headers(headers)
@@ -207,7 +216,7 @@ pub async fn download_and_install_update(app: AppHandle, url: String) -> Result<
     println!("[Updater] 저장 경로: {:?}", file_path);
 
     // 2. reqwest로 스트리밍 다운로드 (실시간 진행률 표시)
-    let client = reqwest::Client::new();
+    let client = get_http_client();
     let res = client
         .get(&url)
         .header(USER_AGENT, "Fazzk-Updater")

@@ -9,6 +9,24 @@ use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
+/// 로깅 시스템 초기화
+fn init_logging() {
+    #[cfg(debug_assertions)]
+    {
+        env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Debug)
+            .init();
+        log::info!("Debug logging initialized");
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Info)
+            .init();
+        log::info!("Production logging initialized");
+    }
+}
+
 
 /// 로그인 상태를 업데이트하는 헬퍼 함수
 fn update_login_state(
@@ -195,6 +213,9 @@ async fn manual_login(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 로깅 시스템 초기화
+    init_logging();
+    
     let app_state = Arc::new(AppState::default());
     let server_state = app_state.clone();
 
@@ -278,6 +299,7 @@ pub fn run() {
             manual_login,
             get_server_port,
             get_app_version,
+            get_app_dir,
             updater::check_for_updates,
             updater::open_download_page,
             updater::download_and_install_update
@@ -295,4 +317,30 @@ async fn get_server_port(state: tauri::State<'_, Arc<AppState>>) -> Result<u16, 
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+async fn get_app_dir(_app: tauri::AppHandle) -> Result<String, String> {
+    // 현재 실행 파일의 디렉토리를 가져옴
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("실행 파일 디렉토리를 찾을 수 없습니다")?;
+    
+    // 개발 모드에서는 프로젝트 루트를 반환
+    #[cfg(debug_assertions)]
+    {
+        // 개발 모드에서는 src-tauri/target/debug에서 실행되므로 프로젝트 루트로 이동
+        let project_root = exe_dir
+            .parent() // target
+            .and_then(|p| p.parent()) // src-tauri
+            .and_then(|p| p.parent()) // project root
+            .ok_or("프로젝트 루트를 찾을 수 없습니다")?;
+        
+        Ok(project_root.to_string_lossy().to_string())
+    }
+    
+    // 프로덕션 모드에서는 실행 파일 디렉토리를 반환
+    #[cfg(not(debug_assertions))]
+    {
+        Ok(exe_dir.to_string_lossy().to_string())
+    }
 }

@@ -7,19 +7,19 @@
 
 ```bash
 # package.json
-"version": "2.5.1"
+"version": "X.X.X"
 
 # src-tauri/Cargo.toml
-version = "2.5.1"
+version = "X.X.X"
 
 # src-tauri/tauri.conf.json
-"version": "2.5.1"
+"version": "X.X.X"
 
-# pages-svelte/src/lib/api.js (브라우저 모드 기본값)
-if (!isTauri) return '2.5.1';
+# src/lib/api.ts (브라우저 모드 기본값)
+if (!isTauri) return 'X.X.X';
 
-# pages-svelte/src/routes/Login.svelte (기본값)
-let currentAppVersion = $state("2.5.1");
+# src/routes/Login.svelte (기본값)
+let currentAppVersion = $state("X.X.X");
 ```
 
 ### 2. 빌드 설정 확인
@@ -28,14 +28,14 @@ let currentAppVersion = $state("2.5.1");
 ```json
 {
   "build": {
-    "beforeBuildCommand": "powershell -Command \"Set-Location ../pages-svelte; npm run build; Set-Location ..; npm run zip-extensions\"",
-    "frontendDist": "../pages-svelte/dist"
+    "beforeBuildCommand": "npm run build && npm run zip-extensions",
+    "frontendDist": "dist"
   }
 }
 ```
 
-이 설정으로 `tauri build` 실행 시:
-- 프론트엔드 빌드 (`pages-svelte` 디렉토리)
+이 설정으로 `npm run tauri:build` 실행 시:
+- 프론트엔드 빌드 (루트 디렉토리)
 - 확장프로그램 빌드 (루트 디렉토리)
 - 백엔드 빌드 및 설치 파일 생성
 
@@ -60,7 +60,7 @@ tauri build
 ```
 
 이 명령어는 자동으로:
-- 프론트엔드 빌드 (`pages-svelte` 디렉토리에서 `npm run build`)
+- 프론트엔드 빌드 (`npm run build`)
 - 브라우저 확장프로그램 빌드 (`npm run zip-extensions`)
 - Rust 백엔드 컴파일
 - Windows 설치 파일 생성 (`Fazzk_X.X.X_x64-setup.exe`)
@@ -183,7 +183,7 @@ gh release create vX.X.X \
 ## 📞 문제 해결
 
 ### 빌드 실패 시
-1. `pages-svelte/dist` 폴더 존재 확인
+1. `dist` 폴더 존재 확인
 2. `npm install` 재실행
 3. Rust 컴파일러 업데이트
 

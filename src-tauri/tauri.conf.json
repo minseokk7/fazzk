@@ -1,13 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Fazzk",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "identifier": "com.dodoroi.fazzk",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "powershell -Command \"Set-Location ../pages-svelte; npm run build; Set-Location ..; npm run zip-extensions\"",
-    "beforeDevCommand": "",
-    "frontendDist": "../pages-svelte/dist"
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build && npm run zip-extensions",
+    "frontendDist": "../dist"
   },
   "plugins": {
     "updater": {
@@ -29,7 +28,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* http://localhost:* https://api.chzzk.naver.com https://comm-api.game.naver.com; media-src 'self' data:;"
     }
   },
   "bundle": {
@@ -38,7 +37,7 @@
       "nsis"
     ],
     "resources": [
-      "../pages-svelte/dist/**/*"
+      "../dist/**/*"
     ],
     "icon": [
       "icon.ico",

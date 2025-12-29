@@ -1,5 +1,5 @@
 <script>
-  import { api } from "./api";
+  import { api } from './api.ts';
 
   const minimize = () => api.minimize();
   const toggleMaximize = () => api.toggleMaximize();
@@ -12,18 +12,9 @@
 
   <!-- Window control buttons -->
   <div class="window-controls-container">
-    <button
-      class="window-control-btn minimize-btn"
-      onclick={minimize}
-      title="최소화"
-    >
+    <button class="window-control-btn minimize-btn" onclick={minimize} title="최소화">
       <svg width="10" height="10" viewBox="0 0 10 10">
-        <path
-          d="M0 5 L10 5"
-          stroke="currentColor"
-          stroke-width="1"
-          fill="none"
-        ></path>
+        <path d="M0 5 L10 5" stroke="currentColor" stroke-width="1" fill="none"></path>
       </svg>
     </button>
     <button
@@ -32,22 +23,12 @@
       title="최대화/이전 크기"
     >
       <svg width="10" height="10" viewBox="0 0 10 10">
-        <path
-          d="M1,1 H9 V9 H1 V1 Z"
-          stroke="currentColor"
-          stroke-width="1"
-          fill="none"
-        ></path>
+        <path d="M1,1 H9 V9 H1 V1 Z" stroke="currentColor" stroke-width="1" fill="none"></path>
       </svg>
     </button>
     <button class="window-control-btn close-btn" onclick={close} title="닫기">
       <svg width="10" height="10" viewBox="0 0 10 10">
-        <path
-          d="M1,1 L9,9 M9,1 L1,9"
-          stroke="currentColor"
-          stroke-width="1"
-          fill="none"
-        ></path>
+        <path d="M1,1 L9,9 M9,1 L1,9" stroke="currentColor" stroke-width="1" fill="none"></path>
       </svg>
     </button>
   </div>

@@ -1,0 +1,3 @@
+﻿afe3ff3c65fea10374143c45a6891d9ac1cf1444|Integrate extension build into tauri build process|2 days ago
+e1f92a5bae22d332bab2f4e5432ab6d8743b26c6|Release v2.5.1: Fix update modal UX and enable automatic frontend build|2 days ago
+ecbb833084d1a45340a4e901d79bbf120ad0152c|Improve update modal UX: Change 'Download' to 'Auto Update' with better messaging|2 days ago

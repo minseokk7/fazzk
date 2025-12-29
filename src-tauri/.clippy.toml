@@ -1,0 +1,14 @@
+# Clippy 설정 파일
+# 더 엄격한 린팅 규칙 적용
+
+# 허용할 최대 복잡도
+cognitive-complexity-threshold = 30
+
+# 허용할 최대 함수 라인 수
+too-many-lines-threshold = 100
+
+# 허용할 최대 인수 개수
+too-many-arguments-threshold = 7
+
+# 문서화 강제
+missing-docs-in-private-items = false

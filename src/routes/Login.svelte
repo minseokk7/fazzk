@@ -1,7 +1,7 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
-  import { push } from "svelte-spa-router";
-  import { api } from "../lib/api";
+  import { onMount, onDestroy } from 'svelte';
+  import { push } from 'svelte-spa-router';
+  import { api } from '../lib/api.ts';
 
   // Cleanup variables
   let updateCheckIntervalId = null;
@@ -9,38 +9,38 @@
   // State
   let helpVisible = $state(false);
   let manualVisible = $state(false);
-  let cookieJson = $state("");
+  let cookieJson = $state('');
 
   // Update modal state
   let showUpdateModal = $state(false);
   let updateData = $state(null);
-  let currentDownloadUrl = $state("");
+  let currentDownloadUrl = $state('');
   let isDownloading = $state(false);
   let downloadProgress = $state(0);
-  let currentAppVersion = $state("2.5.1"); // 기본값
+  let currentAppVersion = $state('2.6.0'); // 기본값
 
   onMount(async () => {
     // 다크 테마를 기본으로 설정
-    document.documentElement.setAttribute("data-theme", "dark");
-    
+    document.documentElement.setAttribute('data-theme', 'dark');
+
     if (api.setTheme) {
       api.setTheme(false); // 다크 테마
     }
 
     // 자동 로그인 이벤트 리스닝
     if (api.isTauri) {
-      await api.listen("manual-login-success", (event) => {
-        console.log("[Login] Manual login success", event.payload);
-        push("/notifier");
+      await api.listen('manual-login-success', event => {
+        console.log('[Login] Manual login success', event.payload);
+        push('/notifier');
       });
     }
 
     // 앱 버전 가져오기
     try {
       currentAppVersion = await api.getAppVersion();
-      console.log("[Login] Current app version:", currentAppVersion);
+      console.log('[Login] Current app version:', currentAppVersion);
     } catch (e) {
-      console.error("[Login] Failed to get app version:", e);
+      console.error('[Login] Failed to get app version:', e);
     }
 
     // 업데이트 체크
@@ -50,38 +50,36 @@
 
   // Cleanup on component destroy
   onDestroy(() => {
-    console.log("[Login] Component destroying, cleaning up resources");
-    
+    console.log('[Login] Component destroying, cleaning up resources');
+
     // Clear update check interval
     if (updateCheckIntervalId) {
       clearInterval(updateCheckIntervalId);
       updateCheckIntervalId = null;
-      console.log("[Login] Update check interval cleared");
+      console.log('[Login] Update check interval cleared');
     }
-    
-    console.log("[Login] All resources cleaned up");
+
+    console.log('[Login] All resources cleaned up');
   });
-
-
 
   async function startLogin() {
     if (!api.isTauri) return;
 
     try {
-      await api.invoke("check_auto_login");
-      console.log("[Login] Auto login successful");
-      push("/notifier");
+      await api.invoke('check_auto_login');
+      console.log('[Login] Auto login successful');
+      push('/notifier');
     } catch (error) {
-      console.log("[Login] Auto login failed:", error);
+      console.log('[Login] Auto login failed:', error);
       alert(
-        "저장된 로그인 정보가 없거나 만료되었습니다.\\n\\n확장 프로그램을 통해 로그인해 주세요.",
+        '저장된 로그인 정보가 없거나 만료되었습니다.\\n\\n확장 프로그램을 통해 로그인해 주세요.'
       );
     }
   }
 
   async function manualLogin() {
     if (!cookieJson.trim()) {
-      alert("쿠키 JSON 값을 입력해주세요.");
+      alert('쿠키 JSON 값을 입력해주세요.');
       return;
     }
 
@@ -89,19 +87,19 @@
     try {
       cookies = JSON.parse(cookieJson);
     } catch (e) {
-      alert("올바른 JSON 형식이 아닙니다.");
+      alert('올바른 JSON 형식이 아닙니다.');
       return;
     }
 
     if (!cookies.NID_AUT || !cookies.NID_SES) {
-      alert("NID_AUT 또는 NID_SES 값이 누락되었습니다.");
+      alert('NID_AUT 또는 NID_SES 값이 누락되었습니다.');
       return;
     }
 
     try {
       await api.manualLogin(cookies.NID_AUT, cookies.NID_SES);
     } catch (error) {
-      alert("오류: " + error.message);
+      alert('오류: ' + error.message);
     }
   }
 
@@ -117,7 +115,7 @@
         updateData = null;
       }
     } catch (e) {
-      console.error("[Update] Check failed:", e);
+      console.error('[Update] Check failed:', e);
     }
   }
 
@@ -128,20 +126,40 @@
 
   async function startAutoUpdate() {
     if (!currentDownloadUrl || isDownloading) return;
-    isDownloading = true;
 
+    console.log('[Update] Starting auto update:', currentDownloadUrl);
+    isDownloading = true;
+    downloadProgress = 0; // 초기화
+
+    // 진행률 이벤트 리스너 설정
     if (api.onUpdateProgress) {
-      api.onUpdateProgress((payload) => {
-        downloadProgress = Math.round(payload.percent);
-      });
+      try {
+        await api.onUpdateProgress(payload => {
+          console.log('[Update] Progress received:', payload);
+          downloadProgress = Math.round(payload.percent);
+
+          // 진행률이 100%가 되면 잠시 대기 후 설치 메시지 표시
+          if (downloadProgress >= 100) {
+            setTimeout(() => {
+              console.log('[Update] Download complete, installing...');
+            }, 500);
+          }
+        });
+        console.log('[Update] Progress listener setup complete');
+      } catch (e) {
+        console.error('[Update] Failed to setup progress listener:', e);
+      }
     }
 
     try {
+      console.log('[Update] Starting download...');
       await api.downloadUpdate(currentDownloadUrl);
+      console.log('[Update] Download and install completed');
     } catch (e) {
-      console.error("Auto update failed:", e);
-      alert("자동 업데이트 실패: " + e);
+      console.error('Auto update failed:', e);
+      alert('자동 업데이트 실패: ' + e);
       isDownloading = false;
+      downloadProgress = 0;
     }
   }
 </script>
@@ -180,8 +198,6 @@
     <div class="update-notify-overlay"></div>
   </button>
 
-
-
   <!-- 메인 컨테이너 -->
   <div class="container">
     <h1>🎮 Fazzk</h1>
@@ -190,11 +206,8 @@
     <button class="login-btn" onclick={startLogin}> 치지직 로그인 </button>
 
     <div class="help-toggle">
-      <button
-        class="toggle-btn"
-        onclick={() => (helpVisible = !helpVisible)}
-      >
-        📖 사용방법 {helpVisible ? "숨기기" : "보기"}
+      <button class="toggle-btn" onclick={() => (helpVisible = !helpVisible)}>
+        📖 사용방법 {helpVisible ? '숨기기' : '보기'}
       </button>
     </div>
 
@@ -202,24 +215,23 @@
       <h3>📌 사용방법</h3>
       <ol>
         <li>
-          <strong>로그인:</strong> 위의 "치지직 로그인" 버튼을 클릭하여 네이버 계정으로
-          로그인하세요.
+          <strong>로그인:</strong> 위의 "치지직 로그인" 버튼을 클릭하여 네이버 계정으로 로그인하세요.
         </li>
         <li>
-          <strong>알림 확인:</strong> 로그인 후 자동으로 알림 화면으로 이동합니다.
-          새로운 팔로워가 생기면 실시간으로 알림이 표시됩니다.
+          <strong>알림 확인:</strong> 로그인 후 자동으로 알림 화면으로 이동합니다. 새로운 팔로워가 생기면
+          실시간으로 알림이 표시됩니다.
         </li>
         <li>
           <strong>OBS 연동:</strong> OBS에서 브라우저 소스를 추가하고 URL을
           <code>http://localhost:3000/follower</code>로 설정하세요.
         </li>
         <li>
-          <strong>테스트:</strong> 알림 화면에서 "테스트 알림" 버튼을 클릭하여
-          알림이 제대로 작동하는지 확인할 수 있습니다.
+          <strong>테스트:</strong> 알림 화면에서 "테스트 알림" 버튼을 클릭하여 알림이 제대로 작동하는지
+          확인할 수 있습니다.
         </li>
         <li>
-          <strong>설정:</strong> 알림 화면 우측 상단의 톱니바퀴 아이콘을 클릭하여
-          TTS 및 알림 설정을 변경할 수 있습니다.
+          <strong>설정:</strong> 알림 화면 우측 상단의 톱니바퀴 아이콘을 클릭하여 TTS 및 알림 설정을 변경할
+          수 있습니다.
         </li>
       </ol>
     </div>
@@ -244,19 +256,14 @@
           placeholder="&lbrace;&quot;NID_AUT&quot;: &quot;...&quot;, &quot;NID_SES&quot;: &quot;...&quot;&rbrace;"
         ></textarea>
       </div>
-      <button class="login-btn" onclick={manualLogin} style="width:100%">
-        로그인 적용
-      </button>
+      <button class="login-btn" onclick={manualLogin} style="width:100%"> 로그인 적용 </button>
     </div>
   </div>
 
   <!-- 업데이트 모달 -->
   {#if showUpdateModal}
     <div class="update-modal">
-      <div
-        class="update-modal-backdrop"
-        onclick={() => (showUpdateModal = false)}
-      ></div>
+      <div class="update-modal-backdrop" onclick={() => (showUpdateModal = false)}></div>
       <div class="update-modal-content">
         <div class="update-modal-glow-left"></div>
         <div class="update-modal-glow-right"></div>
@@ -278,7 +285,7 @@
             </div>
             <div class="update-title-wrapper">
               <h3 class="update-title">
-                {updateData ? "새 업데이트 가능" : "최신 버전 사용 중"}
+                {updateData ? '새 업데이트 가능' : '최신 버전 사용 중'}
               </h3>
               <p class="update-version">
                 {#if updateData}
@@ -309,8 +316,8 @@
             </div>
             <p>
               {updateData
-                ? updateData.release_notes?.split("\n")[0] || "성능 개선 및 버그 수정"
-                : "현재 최신 버전을 사용 중입니다."}
+                ? updateData.release_notes?.split('\n')[0] || '성능 개선 및 버그 수정'
+                : '현재 최신 버전을 사용 중입니다.'}
             </p>
           </div>
 
@@ -319,25 +326,18 @@
               <div class="modal-progress-text">
                 <span
                   >{downloadProgress < 100
-                    ? "업데이트 다운로드 중..."
-                    : "업데이트 설치 중..."}</span
+                    ? '업데이트 다운로드 중...'
+                    : '업데이트 설치 중...'}</span
                 >
                 <span>{downloadProgress}%</span>
               </div>
               <div class="modal-progress-bar">
-                <div
-                  class="modal-progress-fill"
-                  style="width: {downloadProgress}%"
-                ></div>
+                <div class="modal-progress-fill" style="width: {downloadProgress}%"></div>
               </div>
             </div>
           {:else}
             <div class="update-buttons">
-              <button
-                class="update-btn-primary"
-                onclick={startAutoUpdate}
-                disabled={!updateData}
-              >
+              <button class="update-btn-primary" onclick={startAutoUpdate} disabled={!updateData}>
                 <span>자동 업데이트</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path
@@ -367,7 +367,7 @@
   }
 
   :global(body) {
-    font-family: "Pretendard", sans-serif;
+    font-family: 'Pretendard', sans-serif;
     background: var(--bg-color);
     color: var(--text-color);
     transition: background 0.3s ease;
@@ -383,8 +383,6 @@
     --primary-color: #5ce1b0;
     --btn-text: #1a1a1a;
   }
-
-
 
   .container {
     text-align: center;
@@ -425,7 +423,7 @@
     cursor: pointer;
     transition: all 0.3s;
     box-shadow: 0 8px 20px rgba(0, 255, 163, 0.4);
-    font-family: "Pretendard", sans-serif;
+    font-family: 'Pretendard', sans-serif;
   }
 
   .login-btn:hover {
@@ -452,7 +450,7 @@
     font-size: 14px;
     font-weight: 600;
     transition: all 0.3s;
-    font-family: "Pretendard", sans-serif;
+    font-family: 'Pretendard', sans-serif;
   }
 
   .toggle-btn:hover {
@@ -468,7 +466,9 @@
     max-height: 0;
     padding: 0 24px;
     overflow: hidden;
-    transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+    transition:
+      max-height 0.3s ease-out,
+      padding 0.3s ease-out;
   }
 
   .help-content.show {
@@ -497,7 +497,7 @@
     background: rgba(0, 0, 0, 0.3);
     padding: 2px 8px;
     border-radius: 4px;
-    font-family: "Courier New", monospace;
+    font-family: 'Courier New', monospace;
     font-size: 13px;
   }
 
@@ -543,8 +543,6 @@
     resize: vertical;
   }
 
-
-
   /* 업데이트 관련 스타일 */
   /* (start.html의 스타일을 그대로 가져옴) */
   /* 업데이트 알림 버튼 스타일 (HTML 버전과 동일) */
@@ -565,54 +563,54 @@
   }
 
   /* 라이트 모드 버튼 스타일 (HTML 버전과 동일) */
-  :global(html:not([data-theme="dark"])) .update-notify-btn {
+  :global(html:not([data-theme='dark'])) .update-notify-btn {
     background: rgba(255, 255, 255, 0.95);
     border-color: rgba(102, 126, 234, 0.3);
     box-shadow: none;
   }
 
-  :global(html:not([data-theme="dark"])) .update-notify-btn .update-notify-title {
+  :global(html:not([data-theme='dark'])) .update-notify-btn .update-notify-title {
     color: #333;
   }
 
-  :global(html:not([data-theme="dark"])) .update-notify-btn .update-notify-subtitle {
+  :global(html:not([data-theme='dark'])) .update-notify-btn .update-notify-subtitle {
     color: #667eea;
   }
 
-  :global(html:not([data-theme="dark"])) .update-notify-icon {
+  :global(html:not([data-theme='dark'])) .update-notify-icon {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   }
 
-  :global(html:not([data-theme="dark"])) .update-notify-dots .dot {
+  :global(html:not([data-theme='dark'])) .update-notify-dots .dot {
     background: #667eea;
   }
 
-  :global(html:not([data-theme="dark"])) .update-notify-btn:hover {
+  :global(html:not([data-theme='dark'])) .update-notify-btn:hover {
     box-shadow: inset 0 0 20px rgba(102, 126, 234, 0.2);
     border-color: rgba(102, 126, 234, 0.4);
     transform: translateY(0);
   }
 
   /* 다크 모드 버튼 스타일 */
-  :global([data-theme="dark"]) .update-notify-btn {
+  :global([data-theme='dark']) .update-notify-btn {
     background: #1e2730;
     border-color: rgba(0, 255, 163, 0.2);
     box-shadow: none;
   }
 
-  :global([data-theme="dark"]) .update-notify-btn .update-notify-title {
+  :global([data-theme='dark']) .update-notify-btn .update-notify-title {
     color: white;
   }
 
-  :global([data-theme="dark"]) .update-notify-btn .update-notify-subtitle {
+  :global([data-theme='dark']) .update-notify-btn .update-notify-subtitle {
     color: rgba(0, 255, 163, 0.8);
   }
 
-  :global([data-theme="dark"]) .update-notify-icon {
+  :global([data-theme='dark']) .update-notify-icon {
     background: linear-gradient(135deg, #00ffa3 0%, #00cc82 100%);
   }
 
-  :global([data-theme="dark"]) .update-notify-dots .dot {
+  :global([data-theme='dark']) .update-notify-dots .dot {
     background: #00ffa3;
   }
 
@@ -622,7 +620,7 @@
     border-color: rgba(0, 255, 163, 0.4);
   }
 
-  :global([data-theme="dark"]) .update-notify-btn:hover {
+  :global([data-theme='dark']) .update-notify-btn:hover {
     box-shadow: inset 0 0 20px rgba(0, 255, 163, 0.2);
     border-color: rgba(0, 255, 163, 0.4);
   }
@@ -658,53 +656,53 @@
   }
 
   /* 라이트 모드 모달 스타일 (HTML 버전과 동일) */
-  :global(html:not([data-theme="dark"])) .update-modal-content {
+  :global(html:not([data-theme='dark'])) .update-modal-content {
     background: #ffffff;
     box-shadow: 0 25px 50px -12px rgba(102, 126, 234, 0.3);
   }
 
-  :global(html:not([data-theme="dark"])) .update-title {
+  :global(html:not([data-theme='dark'])) .update-title {
     color: #1e293b;
   }
 
-  :global(html:not([data-theme="dark"])) .update-version {
+  :global(html:not([data-theme='dark'])) .update-version {
     color: #64748b;
   }
 
-  :global(html:not([data-theme="dark"])) .update-notes {
+  :global(html:not([data-theme='dark'])) .update-notes {
     background: #f1f5f9;
   }
 
-  :global(html:not([data-theme="dark"])) .update-notes p {
+  :global(html:not([data-theme='dark'])) .update-notes p {
     color: #475569;
   }
 
-  :global(html:not([data-theme="dark"])) .update-icon {
+  :global(html:not([data-theme='dark'])) .update-icon {
     background: #e2e8f0;
   }
 
-  :global(html:not([data-theme="dark"])) .update-icon svg {
+  :global(html:not([data-theme='dark'])) .update-icon svg {
     color: #667eea;
   }
 
-  :global(html:not([data-theme="dark"])) .update-btn-primary {
+  :global(html:not([data-theme='dark'])) .update-btn-primary {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
   }
 
-  :global(html:not([data-theme="dark"])) .update-btn-primary:hover:not(:disabled) {
+  :global(html:not([data-theme='dark'])) .update-btn-primary:hover:not(:disabled) {
     box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
   }
 
-  :global(html:not([data-theme="dark"])) .modal-progress-text {
+  :global(html:not([data-theme='dark'])) .modal-progress-text {
     color: #475569;
   }
 
-  :global(html:not([data-theme="dark"])) .modal-progress-bar {
+  :global(html:not([data-theme='dark'])) .modal-progress-bar {
     background: #e2e8f0;
   }
 
-  :global(html:not([data-theme="dark"])) .modal-progress-fill {
+  :global(html:not([data-theme='dark'])) .modal-progress-fill {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   }
 
@@ -778,8 +776,6 @@
     margin-bottom: 20px;
   }
 
-
-
   .update-notes-icon {
     width: 24px;
     height: 24px;
@@ -803,8 +799,6 @@
     line-height: 1.5;
   }
 
-
-
   .update-buttons {
     display: flex;
     gap: 12px;
@@ -826,8 +820,6 @@
     cursor: pointer;
     transition: all 0.3s ease;
   }
-
-
 
   .update-btn-primary svg {
     width: 16px;
@@ -949,8 +941,6 @@
     color: #94a3b8;
   }
 
-
-
   .modal-progress-bar {
     width: 100%;
     height: 8px;
@@ -959,14 +949,10 @@
     overflow: hidden;
   }
 
-
-
   .modal-progress-fill {
     height: 100%;
     background: linear-gradient(135deg, #00ffa3 0%, #00cc82 100%);
     border-radius: 4px;
     transition: width 0.3s ease;
   }
-
-
 </style>
