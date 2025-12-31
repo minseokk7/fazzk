@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings Manager Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #121212;
+            color: white;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #1e1e1e;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background: #1a5f1a; }
+        .error { background: #5f1a1a; }
+        .info { background: #1a3a5f; }
+        button {
+            background: #00ffa3;
+            color: black;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { opacity: 0.8; }
+        input, select {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 중앙화된 설정 관리 시스템 테스트</h1>
+    
+    <div class="test-section">
+        <h2>1. 설정 관리자 초기화</h2>
+        <button onclick="initializeManager()">설정 관리자 초기화</button>
+        <div id="init-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. 설정값 읽기/쓰기 테스트</h2>
+        <div>
+            <label>볼륨: </label>
+            <input type="range" id="volume" min="0" max="1" step="0.1" value="0.5" onchange="updateSetting('volume', this.value)">
+            <span id="volume-display">0.5</span>
+        </div>
+        <div>
+            <label>폴링 간격: </label>
+            <input type="range" id="pollingInterval" min="5" max="60" step="1" value="15" onchange="updateSetting('pollingInterval', this.value)">
+            <span id="pollingInterval-display">15</span>
+        </div>
+        <div>
+            <label>텍스트 색상: </label>
+            <input type="color" id="textColor" value="#ffffff" onchange="updateSetting('textColor', this.value)">
+        </div>
+        <div>
+            <label>알림 레이아웃: </label>
+            <select id="notificationLayout" onchange="updateSetting('notificationLayout', this.value)">
+                <option value="vertical">세로형</option>
+                <option value="horizontal">가로형</option>
+            </select>
+        </div>
+        <button onclick="getAllSettings()">모든 설정 조회</button>
+        <div id="settings-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. 배치 설정 업데이트 테스트</h2>
+        <button onclick="testBatchUpdate()">배치 업데이트 실행</button>
+        <div id="batch-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. 설정 검증 테스트</h2>
+        <button onclick="testValidation()">검증 테스트 실행</button>
+        <div id="validation-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. 로컬 스토리지 테스트</h2>
+        <button onclick="testLocalStorage()">로컬 스토리지 테스트</button>
+        <div id="storage-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>6. 이벤트 리스너 테스트</h2>
+        <button onclick="testEventListeners()">이벤트 리스너 테스트</button>
+        <div id="events-result"></div>
+    </div>
+
+    <script type="module">
+        // Import the SettingsManager
+        import { SettingsManager } from './src/lib/settingsManager.ts';
+        
+        let settingsManager = null;
+        let eventLog = [];
+
+        // Make functions available globally
+        window.initializeManager = async function() {
+            const resultDiv = document.getElementById('init-result');
+            try {
+                settingsManager = new SettingsManager('http://localhost:3001');
+                
+                // Add event listener for testing
+                settingsManager.addListener((event) => {
+                    eventLog.push(event);
+                    console.log('Settings changed:', event);
+                });
+
+                // Load settings from various sources
+                await settingsManager.loadFromStorage();
+                settingsManager.loadFromURL();
+
+                resultDiv.innerHTML = '<div class="test-result success">✅ 설정 관리자 초기화 성공</div>';
+                
+                // Update UI with current settings
+                updateUI();
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-result error">❌ 초기화 실패: ${error.message}</div>`;
+            }
+        };
+
+        window.updateSetting = function(key, value) {
+            if (!settingsManager) {
+                alert('먼저 설정 관리자를 초기화하세요');
+                return;
+            }
+
+            try {
+                // Convert value to appropriate type
+                let convertedValue = value;
+                if (key === 'volume') {
+                    convertedValue = parseFloat(value);
+                } else if (key === 'pollingInterval') {
+                    convertedValue = parseInt(value);
+                }
+
+                const success = settingsManager.set(key, convertedValue);
+                
+                if (success) {
+                    document.getElementById(`${key}-display`).textContent = convertedValue;
+                    console.log(`Setting updated: ${key} = ${convertedValue}`);
+                } else {
+                    alert(`설정 업데이트 실패: ${key}`);
+                }
+            } catch (error) {
+                alert(`설정 업데이트 오류: ${error.message}`);
+            }
+        };
+
+        window.getAllSettings = function() {
+            if (!settingsManager) {
+                alert('먼저 설정 관리자를 초기화하세요');
+                return;
+            }
+
+            const settings = settingsManager.getAll();
+            const resultDiv = document.getElementById('settings-result');
+            resultDiv.innerHTML = `
+                <div class="test-result info">
+                    <h4>현재 설정값:</h4>
+                    <pre>${JSON.stringify(settings, null, 2)}</pre>
+                </div>
+            `;
+        };
+
+        window.testBatchUpdate = function() {
+            if (!settingsManager) {
+                alert('먼저 설정 관리자를 초기화하세요');
+                return;
+            }
+
+            const batchSettings = {
+                volume: 0.8,
+                displayDuration: 10,
+                textColor: '#ff6b6b',
+                animationType: 'bounce'
+            };
+
+            try {
+                const success = settingsManager.setMultiple(batchSettings);
+                const resultDiv = document.getElementById('batch-result');
+                
+                if (success) {
+                    resultDiv.innerHTML = `
+                        <div class="test-result success">
+                            ✅ 배치 업데이트 성공<br>
+                            업데이트된 설정: ${Object.keys(batchSettings).join(', ')}
+                        </div>
+                    `;
+                    updateUI();
+                } else {
+                    resultDiv.innerHTML = '<div class="test-result error">❌ 배치 업데이트 실패</div>';
+                }
+            } catch (error) {
+                document.getElementById('batch-result').innerHTML = 
+                    `<div class="test-result error">❌ 배치 업데이트 오류: ${error.message}</div>`;
+            }
+        };
+
+        window.testValidation = function() {
+            if (!settingsManager) {
+                alert('먼저 설정 관리자를 초기화하세요');
+                return;
+            }
+
+            const testCases = [
+                { key: 'volume', value: 1.5, shouldFail: true }, // 범위 초과
+                { key: 'volume', value: 0.5, shouldFail: false }, // 정상
+                { key: 'animationType', value: 'invalid', shouldFail: true }, // 잘못된 값
+                { key: 'animationType', value: 'fade', shouldFail: false }, // 정상
+                { key: 'textColor', value: 'invalid', shouldFail: true }, // 잘못된 색상
+                { key: 'textColor', value: '#ff0000', shouldFail: false }, // 정상
+            ];
+
+            let results = [];
+            testCases.forEach(testCase => {
+                const success = settingsManager.set(testCase.key, testCase.value);
+                const passed = testCase.shouldFail ? !success : success;
+                results.push({
+                    ...testCase,
+                    success,
+                    passed
+                });
+            });
+
+            const resultDiv = document.getElementById('validation-result');
+            const passedCount = results.filter(r => r.passed).length;
+            
+            resultDiv.innerHTML = `
+                <div class="test-result ${passedCount === results.length ? 'success' : 'error'}">
+                    <h4>검증 테스트 결과: ${passedCount}/${results.length} 통과</h4>
+                    ${results.map(r => 
+                        `<div>${r.passed ? '✅' : '❌'} ${r.key}=${r.value} (예상: ${r.shouldFail ? '실패' : '성공'})</div>`
+                    ).join('')}
+                </div>
+            `;
+        };
+
+        window.testLocalStorage = function() {
+            if (!settingsManager) {
+                alert('먼저 설정 관리자를 초기화하세요');
+                return;
+            }
+
+            try {
+                // Test saving to localStorage
+                settingsManager.set('volume', 0.7);
+                settingsManager.set('textColor', '#00ff00');
+                
+                // Wait a bit for debounced save
+                setTimeout(() => {
+                    // Check if saved to localStorage
+                    const saved = localStorage.getItem('fazzk-app-settings');
+                    const resultDiv = document.getElementById('storage-result');
+                    
+                    if (saved) {
+                        const parsedSettings = JSON.parse(saved);
+                        resultDiv.innerHTML = `
+                            <div class="test-result success">
+                                ✅ 로컬 스토리지 저장 성공<br>
+                                <pre>${JSON.stringify(parsedSettings, null, 2)}</pre>
+                            </div>
+                        `;
+                    } else {
+                        resultDiv.innerHTML = '<div class="test-result error">❌ 로컬 스토리지 저장 실패</div>';
+                    }
+                }, 200);
+            } catch (error) {
+                document.getElementById('storage-result').innerHTML = 
+                    `<div class="test-result error">❌ 로컬 스토리지 테스트 오류: ${error.message}</div>`;
+            }
+        };
+
+        window.testEventListeners = function() {
+            if (!settingsManager) {
+                alert('먼저 설정 관리자를 초기화하세요');
+                return;
+            }
+
+            // Clear event log
+            eventLog = [];
+            
+            // Make some changes
+            settingsManager.set('volume', 0.9);
+            settingsManager.set('displayDuration', 8);
+            settingsManager.setMultiple({
+                textColor: '#ffff00',
+                animationType: 'slide-up'
+            });
+
+            setTimeout(() => {
+                const resultDiv = document.getElementById('events-result');
+                resultDiv.innerHTML = `
+                    <div class="test-result ${eventLog.length > 0 ? 'success' : 'error'}">
+                        <h4>이벤트 로그 (${eventLog.length}개 이벤트):</h4>
+                        ${eventLog.map(event => 
+                            `<div>🔔 ${event.key}: ${event.oldValue} → ${event.newValue} (${event.source})</div>`
+                        ).join('')}
+                    </div>
+                `;
+            }, 100);
+        };
+
+        function updateUI() {
+            if (!settingsManager) return;
+            
+            const settings = settingsManager.getAll();
+            
+            // Update form controls
+            document.getElementById('volume').value = settings.volume;
+            document.getElementById('volume-display').textContent = settings.volume;
+            document.getElementById('pollingInterval').value = settings.pollingInterval;
+            document.getElementById('pollingInterval-display').textContent = settings.pollingInterval;
+            document.getElementById('textColor').value = settings.textColor;
+            document.getElementById('notificationLayout').value = settings.notificationLayout;
+        }
+
+        // Auto-initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Settings Manager Test Page Loaded');
+        });
+    </script>
+</body>
+</html>

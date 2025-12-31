@@ -1,4 +1,7 @@
 <script>
+  import VirtualList from './VirtualList.svelte';
+  import LazyImage from './LazyImage.svelte';
+  
   export let showHistory = false;
   export let history = [];
   export let clearHistory = () => {};
@@ -8,6 +11,26 @@
     const date = new Date(timestamp);
     return date.toLocaleString('ko-KR');
   }
+
+  // 메모리 정리 이벤트 리스너
+  function handleCleanupHistory(event) {
+    const maxItems = event.detail?.maxItems || 20;
+    if (history.length > maxItems) {
+      history = history.slice(0, maxItems);
+      console.log(`[HistoryModal] Cleaned up history: ${history.length} items remaining`);
+    }
+  }
+
+  // 컴포넌트 마운트 시 이벤트 리스너 등록
+  import { onMount, onDestroy } from 'svelte';
+  
+  onMount(() => {
+    window.addEventListener('cleanup-history', handleCleanupHistory);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('cleanup-history', handleCleanupHistory);
+  });
 </script>
 
 {#if showHistory}
@@ -24,16 +47,28 @@
     <div class="history-list">
       {#if history.length === 0}
         <p class="empty-message">기록이 없습니다.</p>
-      {/if}
-      {#each history as item (item._id)}
-        <div class="history-item">
-          <img src={item.user?.profileImageUrl || '/default_profile.png'} alt="Profile" class="profile-img" />
-          <div class="info">
-            <div class="nickname">{item.user?.nickname}</div>
-            <div class="time">{formatTime(item.followingSince || item.notifiedAt)}</div>
+      {:else}
+        <VirtualList 
+          items={history} 
+          itemHeight={64} 
+          containerHeight={Math.min(400, history.length * 64)}
+          let:item
+        >
+          <div class="history-item">
+            <LazyImage 
+              src={item.user?.profileImageUrl || '/default_profile.png'} 
+              alt="Profile"
+              className="profile-img"
+              width="40"
+              height="40"
+            />
+            <div class="info">
+              <div class="nickname">{item.user?.nickname}</div>
+              <div class="time">{formatTime(item.followingSince || item.notifiedAt)}</div>
+            </div>
           </div>
-        </div>
-      {/each}
+        </VirtualList>
+      {/if}
     </div>
     
     {#if history.length > 0}
@@ -113,7 +148,7 @@
 
   .history-list {
     max-height: calc(90vh - 160px);
-    overflow-y: auto;
+    overflow: hidden; /* VirtualList가 스크롤을 처리 */
     padding: 20px;
     background: linear-gradient(135deg, #2c3e50, #34495e);
   }

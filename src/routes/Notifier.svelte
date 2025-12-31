@@ -3,6 +3,7 @@
   import { api } from '../lib/api.ts';
   import { push } from 'svelte-spa-router';
   import { WSClient } from '../lib/websocket.ts';
+  import { SettingsManager } from '../lib/settingsManager.ts';
   
   // Component imports
   import SessionBanner from '../components/SessionBanner.svelte';
@@ -11,6 +12,11 @@
   import SettingsModal from '../components/SettingsModal.svelte';
   import HistoryModal from '../components/HistoryModal.svelte';
   import KeyboardHelpModal from '../components/KeyboardHelpModal.svelte';
+  import MemoryIndicator from '../components/MemoryIndicator.svelte';
+  import ToastContainer from '../components/ToastContainer.svelte';
+  
+  // Toast system
+  import { toastManager } from '../lib/toastManager.ts';
 
   // State
   let baseUrl = 'http://localhost:3000';
@@ -33,6 +39,7 @@
   let showSettings = $state(false);
   let showHistory = $state(false);
   let showKeyboardHelp = $state(false);
+  let showMemoryMonitor = $state(false); // 메모리 모니터 표시 상태
   let history = $state([]);
 
   // WebSocket 연결 상태
@@ -52,7 +59,10 @@
   let lastFetchTime = 0;
   let fetchCooldown = 1000; // 1초 쿨다운
 
-  // Settings
+  // 중앙화된 설정 관리자
+  let settingsManager;
+
+  // Settings - 이제 settingsManager를 통해 관리됨
   let volume = $state(0.5);
   let pollingInterval = $state(15); // 15초로 증가
   let displayDuration = $state(5);
@@ -63,11 +73,99 @@
   let textColor = $state('#ffffff');
   let textSize = $state(100);
 
-  // Cleanup variables
+  // Cleanup variables - 모든 타이머와 리소스 추적
   let pollingTimeoutId = null;
   let settingsSyncIntervalId = null;
   let keyboardEventHandler = null;
   let wsClient = null;
+  let reconnectTimeoutId = null;
+  let testAlarmTimeoutId = null;
+  let displayTimeoutId = null;
+  let queueProcessTimeoutId = null;
+  let historyCleanupIntervalId = null;
+
+  // 토스트 알림 시스템
+  function showUserError(message, persistent = false) {
+    console.log('[Error] Showing user error:', message);
+    toastManager.error('오류 발생', message, persistent);
+  }
+
+  function showUserSuccess(title, message) {
+    console.log('[Success]', title, ':', message);
+    toastManager.success(title, message);
+  }
+
+  function showUserWarning(title, message) {
+    console.log('[Warning]', title, ':', message);
+    toastManager.warning(title, message);
+  }
+
+  function showUserInfo(title, message) {
+    console.log('[Info]', title, ':', message);
+    toastManager.info(title, message);
+  }
+
+  // 네트워크 에러 처리
+  function handleNetworkError(error, context = '') {
+    console.error(`[Network Error] ${context}:`, error);
+    
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      toastManager.error('네트워크 오류', '인터넷 연결을 확인해주세요.');
+    } else if (error.message.includes('401') || error.message.includes('403')) {
+      toastManager.error('인증 오류', '로그인이 만료되었습니다. 다시 로그인해주세요.', true);
+    } else if (error.message.includes('timeout')) {
+      toastManager.warning('서버 지연', '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.');
+    } else {
+      toastManager.error('연결 오류', `${context} 중 오류가 발생했습니다.`);
+    }
+  }
+  const HISTORY_MAX_SIZE = 50;
+  const HISTORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5분마다 정리
+  const HISTORY_STORAGE_KEY = 'alarmHistory';
+
+  // 히스토리 정리 함수
+  function cleanupHistory() {
+    try {
+      if (history.length > HISTORY_MAX_SIZE) {
+        const oldLength = history.length;
+        history = history.slice(0, HISTORY_MAX_SIZE);
+        console.log(`[History] Cleaned up: ${oldLength} -> ${history.length} items`);
+        
+        // 즉시 저장
+        saveHistoryToStorage();
+      }
+    } catch (error) {
+      console.error('[History] Cleanup failed:', error);
+    }
+  }
+
+  // 히스토리 저장 함수 (중복 제거)
+  function saveHistoryToStorage() {
+    try {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+      console.log(`[History] Saved ${history.length} items to storage`);
+    } catch (error) {
+      console.error('[History] Failed to save to storage:', error);
+      // 저장 실패 시 메모리에서라도 크기 제한
+      if (history.length > HISTORY_MAX_SIZE * 2) {
+        history = history.slice(0, HISTORY_MAX_SIZE);
+        console.log('[History] Emergency memory cleanup performed');
+      }
+    }
+  }
+
+  // 주기적 히스토리 정리 시작
+  function startHistoryCleanup() {
+    if (historyCleanupIntervalId) {
+      clearInterval(historyCleanupIntervalId);
+    }
+    
+    historyCleanupIntervalId = setInterval(() => {
+      cleanupHistory();
+    }, HISTORY_CLEANUP_INTERVAL);
+    
+    console.log('[History] Cleanup scheduler started');
+  }
 
   // 팔로워 히스토리 관리
   const KNOWN_FOLLOWERS_KEY = 'fazzk-known-followers-v2';
@@ -223,6 +321,8 @@
           console.log('[Event] Login Success', event.payload);
           clearErrorStates();
         });
+        
+        console.log('[Event] Manual login listeners registered');
       } catch (eventError) {
         console.error('[Notifier] Failed to setup event listeners:', eventError);
       }
@@ -230,7 +330,7 @@
 
     // Load Settings (with comprehensive error handling)
     try {
-      await loadSettings();
+      await initializeSettingsManager();
       console.log('[init] Settings loaded successfully');
     } catch (settingsError) {
       console.error('[init] Settings loading failed:', settingsError);
@@ -245,10 +345,13 @@
       console.error('[init] Style application failed:', styleError);
     }
 
-    // Load History
+    // Load History with strict size limit
     try {
       loadHistory();
       console.log('[init] History loaded successfully');
+      
+      // 히스토리 정리 스케줄러 시작
+      startHistoryCleanup();
     } catch (historyError) {
       console.error('[init] History loading failed:', historyError);
     }
@@ -340,25 +443,43 @@
     // 폴링 비활성화
     pollingEnabled = false;
 
-    // Clear polling timeout
-    if (pollingTimeoutId) {
-      clearTimeout(pollingTimeoutId);
-      pollingTimeoutId = null;
-      console.log('[Cleanup] Polling timeout cleared');
-    }
+    // Clear all timeouts and intervals
+    const timersToClean = [
+      { id: pollingTimeoutId, name: 'Polling timeout' },
+      { id: settingsSyncIntervalId, name: 'Settings sync interval' },
+      { id: reconnectTimeoutId, name: 'Reconnect timeout' },
+      { id: testAlarmTimeoutId, name: 'Test alarm timeout' },
+      { id: displayTimeoutId, name: 'Display timeout' },
+      { id: queueProcessTimeoutId, name: 'Queue process timeout' },
+      { id: historyCleanupIntervalId, name: 'History cleanup interval' }
+    ];
 
-    // Clear settings sync interval
-    if (settingsSyncIntervalId) {
-      clearInterval(settingsSyncIntervalId);
-      settingsSyncIntervalId = null;
-      console.log('[Cleanup] Settings sync interval cleared');
-    }
+    timersToClean.forEach(({ id, name }) => {
+      if (id) {
+        clearTimeout(id);
+        clearInterval(id);
+        console.log(`[Cleanup] ${name} cleared`);
+      }
+    });
+
+    // Reset timer IDs
+    pollingTimeoutId = null;
+    settingsSyncIntervalId = null;
+    reconnectTimeoutId = null;
+    testAlarmTimeoutId = null;
+    displayTimeoutId = null;
+    queueProcessTimeoutId = null;
+    historyCleanupIntervalId = null;
 
     // Remove keyboard event listener
     if (keyboardEventHandler) {
-      document.removeEventListener('keydown', keyboardEventHandler);
+      document.removeEventListener('keydown', keyboardEventHandler, true);
+      window.removeEventListener('keydown', keyboardEventHandler, true);
+      if (document.body) {
+        document.body.removeEventListener('keydown', keyboardEventHandler, true);
+      }
       keyboardEventHandler = null;
-      console.log('[Cleanup] Keyboard event listener removed');
+      console.log('[Cleanup] Keyboard event listeners removed');
     }
 
     // Disconnect WebSocket and clear all event handlers
@@ -379,18 +500,109 @@
     // Clear queues and state
     queue.length = 0;
     knownFollowers.clear();
-    history.length = 0;
-
+    
     // Clear any pending test alarm flags
     if (window.testAlarmInProgress) {
       window.testAlarmInProgress = false;
     }
 
-    console.log('[Cleanup] All resources cleaned up');
+    // Clean up settings manager
+    if (settingsManager) {
+      settingsManager.destroy();
+      settingsManager = null;
+      console.log('[Cleanup] Settings manager destroyed');
+    }
+
+    console.log('[Cleanup] All resources cleaned up successfully');
   });
 
-  async function loadSettings() {
-    console.log('[Settings] Loading settings...');
+  async function initializeSettingsManager() {
+    console.log('[Settings] Initializing centralized settings manager...');
+
+    try {
+      // 설정 관리자 생성
+      settingsManager = new SettingsManager(baseUrl);
+
+      // 설정 변경 리스너 등록
+      settingsManager.addListener((event) => {
+        console.log(`[Settings] Setting changed: ${event.key} = ${event.newValue} (source: ${event.source})`);
+        
+        // 반응형 변수 업데이트
+        switch (event.key) {
+          case 'volume':
+            volume = event.newValue;
+            break;
+          case 'pollingInterval':
+            pollingInterval = event.newValue;
+            break;
+          case 'displayDuration':
+            displayDuration = event.newValue;
+            break;
+          case 'enableTTS':
+            enableTTS = event.newValue;
+            break;
+          case 'customSoundPath':
+            customSoundPath = event.newValue;
+            break;
+          case 'animationType':
+            animationType = event.newValue;
+            break;
+          case 'notificationLayout':
+            notificationLayout = event.newValue;
+            break;
+          case 'textColor':
+            textColor = event.newValue;
+            break;
+          case 'textSize':
+            textSize = event.newValue;
+            break;
+        }
+
+        // 스타일 재적용 (UI 관련 설정 변경 시)
+        if (['textColor', 'textSize', 'customSoundPath'].includes(event.key)) {
+          applyStyles();
+        }
+      });
+
+      // 설정 로드 순서: 로컬 스토리지 → 서버 → URL 파라미터
+      console.log('[Settings] Loading from localStorage...');
+      await settingsManager.loadFromStorage();
+
+      console.log('[Settings] Loading from server...');
+      await settingsManager.loadFromServer();
+
+      console.log('[Settings] Loading from URL parameters...');
+      settingsManager.loadFromURL();
+
+      // 초기 설정값을 반응형 변수에 적용
+      const settings = settingsManager.getAll();
+      volume = settings.volume;
+      pollingInterval = settings.pollingInterval;
+      displayDuration = settings.displayDuration;
+      enableTTS = settings.enableTTS;
+      customSoundPath = settings.customSoundPath;
+      animationType = settings.animationType;
+      notificationLayout = settings.notificationLayout;
+      textColor = settings.textColor;
+      textSize = settings.textSize;
+
+      console.log('[Settings] Centralized settings manager initialized successfully');
+      console.log('[Settings] Final settings:', settings);
+
+      return true;
+    } catch (error) {
+      console.error('[Settings] Failed to initialize settings manager:', error);
+      
+      // 폴백: 기존 방식으로 설정 로드
+      console.log('[Settings] Falling back to legacy settings loading...');
+      await loadSettingsLegacy();
+      return false;
+    }
+  }
+
+  // 기존 설정 로드 방식 (폴백용)
+  async function loadSettingsLegacy() {
+    console.log('[Settings] Loading settings (legacy mode)...');
 
     // Step 1: Try to load from server first
     let serverSettings = {};
@@ -483,7 +695,7 @@
       console.log('[Settings] URL parameter overrides applied:', urlOverrides);
     }
 
-    console.log('[Settings] Final settings:', {
+    console.log('[Settings] Final settings (legacy):', {
       volume,
       pollingInterval,
       displayDuration,
@@ -497,6 +709,51 @@
   }
 
   async function saveSettings() {
+    console.log('[Settings] Saving settings via centralized manager...');
+
+    try {
+      if (!settingsManager) {
+        console.warn('[Settings] Settings manager not initialized, falling back to legacy save');
+        await saveSettingsLegacy();
+        return;
+      }
+
+      // 최소값 검증
+      if (pollingInterval < 5) pollingInterval = 5;
+
+      // 설정 관리자를 통해 모든 설정 업데이트
+      const settingsToSave = {
+        volume,
+        pollingInterval,
+        displayDuration,
+        enableTTS,
+        customSoundPath,
+        animationType,
+        notificationLayout,
+        textColor,
+        textSize,
+      };
+
+      const success = settingsManager.setMultiple(settingsToSave, 'user');
+      
+      if (success) {
+        console.log('[Settings] Settings saved successfully via centralized manager');
+        applyStyles();
+        showSettings = false;
+      } else {
+        console.error('[Settings] Failed to save settings via centralized manager');
+        // 폴백으로 기존 방식 사용
+        await saveSettingsLegacy();
+      }
+    } catch (error) {
+      console.error('[Settings] Error saving settings:', error);
+      // 폴백으로 기존 방식 사용
+      await saveSettingsLegacy();
+    }
+  }
+
+  // 기존 설정 저장 방식 (폴백용)
+  async function saveSettingsLegacy() {
     if (pollingInterval < 5) pollingInterval = 5;
 
     const settingsToSave = {
@@ -511,7 +768,7 @@
       textSize,
     };
 
-    console.log('[Settings] Saving settings:', settingsToSave);
+    console.log('[Settings] Saving settings (legacy mode):', settingsToSave);
 
     // Always save to local storage first (as backup)
     try {
@@ -608,9 +865,9 @@
       // Show user-friendly error message
       if (api.isTauri) {
         // In Tauri, we can show a more specific error
-        alert('파일 선택에 실패했습니다. 다시 시도해 주세요.');
+        showUserError('파일 선택에 실패했습니다. 다시 시도해 주세요.');
       } else {
-        alert('파일 선택 기능을 사용할 수 없습니다.');
+        showUserError('파일 선택 기능을 사용할 수 없습니다.');
       }
 
       // Maintain current settings - don't change customSoundPath
@@ -802,6 +1059,56 @@
   function handleSettingsUpdateFromWS(settings) {
     console.log('[WebSocket] Applying settings update:', settings);
 
+    try {
+      if (settingsManager) {
+        // 중앙화된 설정 관리자 사용
+        console.log('[WebSocket] Using centralized settings manager for update');
+        
+        // URL 파라미터가 있는 설정은 제외하고 업데이트
+        const params = new URLSearchParams(window.location.search);
+        const filteredSettings = {};
+        
+        Object.entries(settings).forEach(([key, value]) => {
+          // URL 파라미터로 오버라이드된 설정은 건너뛰기
+          const paramName = key === 'notificationLayout' ? 'notificationLayout' : 
+                           key === 'animationType' ? 'animationType' :
+                           key === 'displayDuration' ? 'displayDuration' :
+                           key === 'textColor' ? 'textColor' :
+                           key === 'textSize' ? 'textSize' :
+                           key === 'volume' ? 'volume' : key;
+          
+          if (!params.has(paramName)) {
+            filteredSettings[key] = value;
+          } else {
+            console.log(`[WebSocket] Skipping ${key} - overridden by URL parameter`);
+          }
+        });
+
+        if (Object.keys(filteredSettings).length > 0) {
+          const success = settingsManager.setMultiple(filteredSettings, 'server');
+          if (success) {
+            console.log('[WebSocket] Settings updated successfully via centralized manager');
+          } else {
+            console.warn('[WebSocket] Failed to update settings via centralized manager, falling back');
+            handleSettingsUpdateFromWSLegacy(settings);
+          }
+        } else {
+          console.log('[WebSocket] No settings to update (all overridden by URL parameters)');
+        }
+      } else {
+        console.warn('[WebSocket] Settings manager not available, using legacy update');
+        handleSettingsUpdateFromWSLegacy(settings);
+      }
+    } catch (error) {
+      console.error('[WebSocket] Error updating settings:', error);
+      handleSettingsUpdateFromWSLegacy(settings);
+    }
+  }
+
+  // 기존 WebSocket 설정 업데이트 방식 (폴백용)
+  function handleSettingsUpdateFromWSLegacy(settings) {
+    console.log('[WebSocket] Applying settings update (legacy mode):', settings);
+
     // URL 파라미터가 없는 경우만 업데이트
     const params = new URLSearchParams(window.location.search);
 
@@ -975,11 +1282,16 @@
 
     try {
       const res = await fetch(`${baseUrl}/followers?_t=${now}`);
+      
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           handleSessionError();
+          return;
+        } else if (res.status >= 500) {
+          throw new Error(`서버 오류 (${res.status}): 서버에 일시적인 문제가 있습니다.`);
+        } else {
+          throw new Error(`HTTP ${res.status}: 요청을 처리할 수 없습니다.`);
         }
-        return;
       }
 
       // 성공 시 에러 상태 해제
@@ -1090,7 +1402,7 @@
       }
     } catch (e) {
       console.error('[Fetch] Error:', e);
-      // Network errors should not trigger session error state
+      handleNetworkError(e, '팔로워 정보 가져오기');
       // Continue with next scheduled poll
     } finally {
       isFetching = false;
@@ -1147,7 +1459,16 @@
         console.log(
           `[Reconnect] Scheduling next attempt in 3 seconds (${reconnectAttempts}/${maxReconnectAttempts})`
         );
-        setTimeout(attemptReconnect, 3000);
+        
+        // Clear existing timeout before setting new one
+        if (reconnectTimeoutId) {
+          clearTimeout(reconnectTimeoutId);
+        }
+        
+        reconnectTimeoutId = setTimeout(() => {
+          reconnectTimeoutId = null;
+          attemptReconnect();
+        }, 3000);
       }
     }
   }
@@ -1191,16 +1512,28 @@
 
         console.log(`[Queue] Notification will display for ${displayDuration} seconds`);
 
+        // Clear existing display timeout
+        if (displayTimeoutId) {
+          clearTimeout(displayTimeoutId);
+        }
+
         // Set timer for display duration
-        setTimeout(() => {
+        displayTimeoutId = setTimeout(() => {
           console.log(
             `[Queue] Display duration expired for: ${currentItem?.user?.nickname || 'unknown'}`
           );
           currentItem = null;
+          displayTimeoutId = null;
+
+          // Clear existing queue process timeout
+          if (queueProcessTimeoutId) {
+            clearTimeout(queueProcessTimeoutId);
+          }
 
           // Small delay before processing next item to prevent UI flicker
-          setTimeout(() => {
+          queueProcessTimeoutId = setTimeout(() => {
             isProcessing = false;
+            queueProcessTimeoutId = null;
             console.log(`[Queue] Ready for next item. Remaining: ${queue.length}`);
 
             // Process next item if available
@@ -1209,15 +1542,22 @@
             } else {
               console.log('[Queue] Queue is now empty');
             }
-          }, 300); // 줄인 지연 시간
+          }, 300);
         }, displayDuration * 1000);
       } catch (notificationError) {
         console.error('[Queue] Notification display failed:', notificationError);
 
         // Even if notification fails, continue processing queue
         currentItem = null;
-        setTimeout(() => {
+        
+        // Clear existing timeout
+        if (queueProcessTimeoutId) {
+          clearTimeout(queueProcessTimeoutId);
+        }
+        
+        queueProcessTimeoutId = setTimeout(() => {
           isProcessing = false;
+          queueProcessTimeoutId = null;
           processQueue(); // Try next item
         }, 500);
       }
@@ -1281,22 +1621,12 @@
 
       console.log('[History] Adding item:', historyItem.user.nickname);
 
-      // Add to beginning and limit to 50 items (성능 최적화)
-      history = [historyItem, ...history.slice(0, 49)];
+      // Add to beginning with strict size limit
+      history = [historyItem, ...history.slice(0, HISTORY_MAX_SIZE - 1)];
 
       // 비동기로 저장하여 UI 블로킹 방지
       setTimeout(() => {
-        try {
-          localStorage.setItem('alarmHistory', JSON.stringify(history));
-          console.log(`[History] Saved to storage. Total items: ${history.length}`);
-        } catch (storageError) {
-          console.error('[History] Failed to save to local storage:', storageError);
-          // 저장 실패 시 메모리에서도 크기 제한
-          if (history.length > 100) {
-            history = history.slice(0, 50);
-            console.log('[History] Trimmed history due to storage failure');
-          }
-        }
+        saveHistoryToStorage();
       }, 0);
     } catch (error) {
       console.error('[History] Failed to add history item:', error);
@@ -1307,24 +1637,20 @@
     console.log('[History] Loading history from local storage');
 
     try {
-      const s = localStorage.getItem('alarmHistory');
+      const s = localStorage.getItem(HISTORY_STORAGE_KEY);
       if (s) {
         const parsedHistory = JSON.parse(s);
 
         // Validate that it's an array
         if (Array.isArray(parsedHistory)) {
-          // Ensure we don't exceed maximum size (50 items)
-          history = parsedHistory.slice(0, 50);
+          // Ensure we don't exceed maximum size
+          history = parsedHistory.slice(0, HISTORY_MAX_SIZE);
           console.log(`[History] Loaded ${history.length} items from storage`);
 
           // If we had to truncate, save the truncated version back
-          if (parsedHistory.length > 50) {
-            console.log(`[History] Truncated from ${parsedHistory.length} to 50 items`);
-            try {
-              localStorage.setItem('alarmHistory', JSON.stringify(history));
-            } catch (saveError) {
-              console.error('[History] Failed to save truncated history:', saveError);
-            }
+          if (parsedHistory.length > HISTORY_MAX_SIZE) {
+            console.log(`[History] Truncated from ${parsedHistory.length} to ${HISTORY_MAX_SIZE} items`);
+            saveHistoryToStorage();
           }
         } else {
           console.warn('[History] Invalid history format in storage, resetting');
@@ -1340,7 +1666,7 @@
 
       // Try to clear corrupted data
       try {
-        localStorage.removeItem('alarmHistory');
+        localStorage.removeItem(HISTORY_STORAGE_KEY);
         console.log('[History] Cleared corrupted history data');
       } catch (clearError) {
         console.error('[History] Failed to clear corrupted data:', clearError);
@@ -1356,7 +1682,7 @@
 
     // Clear from local storage
     try {
-      localStorage.removeItem('alarmHistory');
+      localStorage.removeItem(HISTORY_STORAGE_KEY);
       console.log('[History] Successfully cleared from storage');
     } catch (error) {
       console.error('[History] Failed to clear from storage:', error);
@@ -1390,6 +1716,7 @@
     // 중복 방지를 위한 플래그 (성능 최적화)
     if (window.testAlarmInProgress) {
       console.log('[TestAlarm] Test alarm already in progress, skipping');
+      showUserWarning('테스트 알림', '이미 테스트 알림이 진행 중입니다.');
       return;
     }
 
@@ -1401,16 +1728,25 @@
 
       if (wsClient.requestTestFollower()) {
         console.log('[TestAlarm] WebSocket test request sent');
+        showUserSuccess('테스트 알림', 'WebSocket을 통해 테스트 알림을 전송했습니다.');
         // WebSocket 성공 시 플래그 빠르게 해제
-        setTimeout(() => {
+        if (testAlarmTimeoutId) {
+          clearTimeout(testAlarmTimeoutId);
+        }
+        testAlarmTimeoutId = setTimeout(() => {
           window.testAlarmInProgress = false;
+          testAlarmTimeoutId = null;
         }, 1000);
       } else {
         console.log('[TestAlarm] WebSocket request failed, falling back to direct creation');
+        showUserWarning('테스트 알림', 'WebSocket 전송 실패, 직접 생성으로 전환합니다.');
         createDirectTestAlarm();
       }
     } else {
       console.log('[TestAlarm] WebSocket not available, using fallback methods');
+      
+      // 직접 생성 방식에서는 토스트 없이 바로 알림 표시 (중복 방지)
+      // 실제 팔로워 알림이 표시되므로 별도 토스트 불필요
 
       // 모든 환경에서 클라이언트에서 직접 생성 (즉시 표시)
       createDirectTestAlarm();
@@ -1429,17 +1765,24 @@
           })
           .then(data => {
             console.log('[TestAlarm] Server API success for OBS sync:', data);
+            // OBS 동기화 성공은 로그만 (실제 알림이 이미 표시됨)
           })
           .catch(error => {
             console.error('[TestAlarm] Server API failed:', error);
+            // OBS 동기화 실패만 별도 토스트로 표시
+            showUserWarning('OBS 동기화', 'OBS 동기화에 실패했지만 테스트 알림은 정상 작동합니다.');
           });
       }
     }
 
-    // 1초 후 플래그 해제 (2초에서 1초로 단축)
-    setTimeout(() => {
+    // 1초 후 플래그 해제 (안전장치)
+    if (testAlarmTimeoutId) {
+      clearTimeout(testAlarmTimeoutId);
+    }
+    testAlarmTimeoutId = setTimeout(() => {
       window.testAlarmInProgress = false;
-      console.log('[TestAlarm] Test alarm flag cleared');
+      testAlarmTimeoutId = null;
+      console.log('[TestAlarm] Test alarm flag cleared (safety timeout)');
     }, 1000);
   }
 
@@ -1472,14 +1815,9 @@
     const url = `http://localhost:${baseUrl.split(':')[2]}/follower`;
     navigator.clipboard.writeText(url);
     
-    // 포트 정보도 함께 표시
-    const portInfo = `
-현재 포트: ${baseUrl.split(':')[2]}
-OBS URL: ${url}
-
-💡 팁: 포트가 변경되면 이 URL도 업데이트됩니다.`;
-    
-    alert('OBS URL이 복사되었습니다!\n\n' + portInfo);
+    showUserSuccess('URL 복사 완료', 'OBS URL이 클립보드에 복사되었습니다.', {
+      message: `현재 포트: ${baseUrl.split(':')[2]}\nOBS URL: ${url}\n\n💡 팁: 포트가 변경되면 이 URL도 업데이트됩니다.`
+    });
   }
 
   function copyRedirectorPath() {
@@ -1487,20 +1825,9 @@ OBS URL: ${url}
     const pathToCopy = userPath || 'scripts/obs-redirector.html';
     navigator.clipboard.writeText(pathToCopy);
     
-    const pathInfo = `
-리다이렉터 파일 경로: ${pathToCopy}
-
-사용법:
-1. OBS Studio에서 브라우저 소스 추가
-2. 이 경로를 URL에 붙여넣기
-3. 자동으로 Fazzk에 연결됩니다
-
-장점:
-- 포트가 변경되어도 자동으로 연결
-- 연결 상태 시각적 표시
-- OBS에서 URL 변경 불필요`;
-    
-    alert('리다이렉터 파일 경로가 복사되었습니다!\n\n' + pathInfo);
+    showUserSuccess('경로 복사 완료', '리다이렉터 파일 경로가 클립보드에 복사되었습니다.', {
+      message: `리다이렉터 파일 경로: ${pathToCopy}\n\n사용법:\n1. OBS Studio에서 브라우저 소스 추가\n2. 이 경로를 URL에 붙여넣기\n3. 자동으로 Fazzk에 연결됩니다\n\n장점:\n- 포트가 변경되어도 자동으로 연결\n- 연결 상태 시각적 표시\n- OBS에서 URL 변경 불필요`
+    });
   }
 
   function handleLogin() {
@@ -1511,38 +1838,153 @@ OBS URL: ${url}
     }
   }
 
+  // 메모리 정리 함수
+  function triggerMemoryCleanup() {
+    console.log('[MemoryCleanup] Manual cleanup triggered via keyboard shortcut');
+    
+    try {
+      // 1. 메모리 모니터의 정리 기능 호출
+      import('../lib/memoryMonitor.ts').then(({ memoryMonitor }) => {
+        memoryMonitor.manualCleanup();
+      });
+
+      // 2. 앱별 정리 로직 실행
+      const cleanupResult = triggerAppCleanup();
+
+      // 3. 사용자에게 통합된 피드백 제공
+      console.log('[MemoryCleanup] 메모리 정리가 완료되었습니다');
+      showUserSuccess('메모리 정리 완료', '메모리 정리가 완료되었습니다.', {
+        message: `정리 결과:\n• 이미지 캐시: ${cleanupResult.cleanedImages}개\n• 히스토리 항목: ${cleanupResult.cleanedHistory}개\n• 브라우저 캐시 정리 완료`
+      });
+
+    } catch (error) {
+      console.error('[MemoryCleanup] Error during cleanup:', error);
+      showUserError('메모리 정리 중 오류가 발생했습니다.');
+    }
+  }
+
+  // 앱별 메모리 정리 로직
+  function triggerAppCleanup() {
+    try {
+      // 1. 이미지 캐시 정리
+      const images = document.querySelectorAll('img');
+      let cleanedImages = 0;
+      images.forEach(img => {
+        if (img.src.startsWith('blob:')) {
+          URL.revokeObjectURL(img.src);
+          cleanedImages++;
+        }
+      });
+
+      // 2. 히스토리 데이터 정리 (오래된 항목 제거)
+      const originalHistoryLength = history.length;
+      if (history.length > 20) {
+        history = history.slice(0, 20);
+        saveHistoryToStorage();
+      }
+      const cleanedHistory = originalHistoryLength - history.length;
+
+      // 3. 캐시된 데이터 정리
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          names.forEach(name => {
+            if (name.includes('old') || name.includes('temp')) {
+              caches.delete(name);
+            }
+          });
+        });
+      }
+
+      return {
+        cleanedImages,
+        cleanedHistory
+      };
+
+      // 4. 큐 정리
+      if (queue.length > 10) {
+        queue = queue.slice(0, 10);
+      }
+
+      console.log(`[MemoryCleanup] App cleanup completed:
+        - Images cleaned: ${cleanedImages}
+        - History items: ${originalHistoryLength} → ${history.length}
+        - Queue items: ${queue.length}`);
+
+    } catch (error) {
+      console.error('[MemoryCleanup] Error during app cleanup:', error);
+    }
+  }
+
   function setupKeyboardShortcuts() {
     console.log('[Keyboard] Setting up keyboard shortcuts');
 
     // Remove existing event listener if any
     if (keyboardEventHandler) {
       document.removeEventListener('keydown', keyboardEventHandler);
+      window.removeEventListener('keydown', keyboardEventHandler);
+      if (document.body) {
+        document.body.removeEventListener('keydown', keyboardEventHandler);
+      }
     }
 
     keyboardEventHandler = event => {
+      console.log('[Keyboard] Key event detected:', {
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        target: event.target.tagName
+      });
+
       // Ctrl+T: 테스트 알림
-      if (event.ctrlKey && event.key === 't') {
+      if (event.ctrlKey && (event.key === 't' || event.key === 'T')) {
         event.preventDefault();
+        event.stopPropagation();
         console.log('[Keyboard] Test alarm triggered via Ctrl+T');
         testAlarm();
+        return;
       }
 
       // Ctrl+S: 설정 토글
-      if (event.ctrlKey && event.key === 's') {
+      if (event.ctrlKey && (event.key === 's' || event.key === 'S')) {
         event.preventDefault();
+        event.stopPropagation();
         console.log('[Keyboard] Settings toggled via Ctrl+S');
         showSettings = !showSettings;
+        return;
       }
 
       // Ctrl+H: 히스토리 토글
-      if (event.ctrlKey && event.key === 'h') {
+      if (event.ctrlKey && (event.key === 'h' || event.key === 'H')) {
         event.preventDefault();
+        event.stopPropagation();
         console.log('[Keyboard] History toggled via Ctrl+H');
         showHistory = !showHistory;
+        return;
+      }
+
+      // Ctrl+M: 메모리 모니터 토글
+      if (event.ctrlKey && (event.key === 'm' || event.key === 'M')) {
+        event.preventDefault();
+        event.stopPropagation();
+        console.log('[Keyboard] Memory monitor toggled via Ctrl+M');
+        showMemoryMonitor = !showMemoryMonitor;
+        return;
+      }
+
+      // Ctrl+Shift+M: 메모리 정리 실행
+      if (event.ctrlKey && event.shiftKey && (event.key === 'm' || event.key === 'M')) {
+        event.preventDefault();
+        event.stopPropagation();
+        console.log('[Keyboard] Memory cleanup triggered via Ctrl+Shift+M');
+        triggerMemoryCleanup();
+        return;
       }
 
       // Escape: 모달 닫기
       if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
         if (showSettings) {
           console.log('[Keyboard] Settings closed via Escape');
           showSettings = false;
@@ -1552,17 +1994,49 @@ OBS URL: ${url}
         } else if (showKeyboardHelp) {
           console.log('[Keyboard] Keyboard help closed via Escape');
           showKeyboardHelp = false;
+        } else if (showMemoryMonitor) {
+          console.log('[Keyboard] Memory monitor closed via Escape');
+          showMemoryMonitor = false;
         }
+        return;
       }
     };
 
-    document.addEventListener('keydown', keyboardEventHandler);
+    // 여러 곳에 이벤트 리스너 등록 (Tauri 환경에서 더 안정적)
+    document.addEventListener('keydown', keyboardEventHandler, true); // capture phase
+    window.addEventListener('keydown', keyboardEventHandler, true); // window level
+    
+    // 추가적으로 body에도 등록
+    if (document.body) {
+      document.body.addEventListener('keydown', keyboardEventHandler, true);
+    }
+
+    // 포커스 확인을 위한 클릭 이벤트 추가
+    const ensureFocus = () => {
+      if (document.activeElement !== document.body) {
+        document.body.focus();
+      }
+    };
+    
+    document.addEventListener('click', ensureFocus);
+    window.addEventListener('focus', ensureFocus);
 
     console.log('[Keyboard] Keyboard shortcuts registered:');
     console.log('  - Ctrl+T: 테스트 알림');
     console.log('  - Ctrl+S: 설정 열기/닫기');
     console.log('  - Ctrl+H: 히스토리 열기/닫기');
+    console.log('  - Ctrl+M: 메모리 모니터 열기/닫기');
+    console.log('  - Ctrl+Shift+M: 메모리 정리 실행');
     console.log('  - Escape: 모달 닫기');
+    
+    // 초기 포커스 설정
+    setTimeout(() => {
+      if (document.body) {
+        document.body.focus();
+        document.body.setAttribute('tabindex', '-1');
+        console.log('[Keyboard] Initial focus set to body');
+      }
+    }, 100);
   }
 
   // OBS 모드에서 설정 동기화 - WebSocket 우선 사용
@@ -1576,6 +2050,35 @@ OBS URL: ${url}
     // WebSocket이 없는 경우에만 폴링 사용
     console.log('[SettingsSync] WebSocket not available, using polling fallback');
     
+    // 중앙화된 설정 관리자가 있으면 사용
+    if (settingsManager) {
+      console.log('[SettingsSync] Using centralized settings manager for sync');
+      
+      // 30초마다 서버에서 설정 다시 로드
+      if (settingsSyncIntervalId) {
+        clearInterval(settingsSyncIntervalId);
+      }
+      
+      settingsSyncIntervalId = setInterval(async () => {
+        try {
+          console.log('[SettingsSync] Syncing settings from server...');
+          await settingsManager.loadFromServer();
+        } catch (error) {
+          console.error('[SettingsSync] Failed to sync settings from server:', error);
+        }
+      }, 30000);
+      
+      console.log('[SettingsSync] Centralized settings sync started (30s interval)');
+      return;
+    }
+    
+    // 폴백: 기존 폴링 방식
+    console.log('[SettingsSync] Using legacy polling sync');
+    startSettingsSyncLegacy();
+  }
+
+  // 기존 설정 동기화 방식 (폴백용)
+  function startSettingsSyncLegacy() {
     let lastSettingsHash = null;
     let syncInProgress = false;
 
@@ -1682,7 +2185,7 @@ OBS URL: ${url}
   }
 </script>
 
-<div class="notifier-container">
+<div class="notifier-container" tabindex="-1" onclick={() => document.activeElement?.blur()}>
   <audio bind:this={audio} id="notificationSound" preload="auto"></audio>
 
   <!-- Session Banner Component -->
@@ -1711,6 +2214,9 @@ OBS URL: ${url}
     bind:showSettings
     {testAlarm}
   />
+
+  <!-- Toast Container -->
+  <ToastContainer position="top-right" maxToasts={3} />
 
   <!-- Settings Modal Component -->
   {#if showSettings}
@@ -1856,40 +2362,11 @@ OBS URL: ${url}
   {/if}
 
   <!-- Keyboard Help Modal Component -->
-  {#if showKeyboardHelp}
-    <div class="modal-overlay" onclick={() => (showKeyboardHelp = false)}>
-      <div class="keyboard-help-modal" onclick={(e) => e.stopPropagation()} style="width: 370px !important; max-width: 90vw !important;">
-        <div class="modal-header">
-          <h2>키보드 단축키</h2>
-          <button class="close-btn" onclick={() => (showKeyboardHelp = false)}>×</button>
-        </div>
-        
-        <div class="modal-body">
-          <div class="keyboard-shortcuts">
-            <div class="shortcut-item">
-              <div class="shortcut-key">Ctrl + T</div>
-              <div class="shortcut-desc">테스트 알림 실행</div>
-            </div>
-            <div class="shortcut-item">
-              <div class="shortcut-key">Ctrl + S</div>
-              <div class="shortcut-desc">설정 열기/닫기</div>
-            </div>
-            <div class="shortcut-item">
-              <div class="shortcut-key">Ctrl + H</div>
-              <div class="shortcut-desc">히스토리 열기/닫기</div>
-            </div>
-            <div class="shortcut-item">
-              <div class="shortcut-key">Escape</div>
-              <div class="shortcut-desc">모달 창 닫기</div>
-            </div>
-          </div>
-          
-          <div class="tip-message">
-            💡 이 단축키들은 앱이 포커스된 상태에서 작동합니다
-          </div>
-        </div>
-      </div>
-    </div>
+  <KeyboardHelpModal bind:showKeyboardHelp />
+
+  <!-- 메모리 사용량 모니터 -->
+  {#if showMemoryMonitor}
+    <MemoryIndicator showDetails={true} position="bottom-left" />
   {/if}
 </div>
 
@@ -2275,4 +2752,5 @@ OBS URL: ${url}
     padding-top: 20px;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
+
 </style>

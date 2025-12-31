@@ -9,6 +9,8 @@ use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
+
+
 /// 로깅 시스템 초기화
 fn init_logging() {
     #[cfg(debug_assertions)]
@@ -322,6 +324,8 @@ async fn get_server_port(state: tauri::State<'_, Arc<AppState>>) -> Result<u16, 
     let port = state.port.lock().map_err(|e| e.to_string())?;
     Ok(*port)
 }
+
+
 
 #[tauri::command]
 fn get_app_version() -> String {

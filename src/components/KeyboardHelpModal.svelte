@@ -27,6 +27,14 @@
         <div class="shortcut-desc">히스토리 열기/닫기</div>
       </div>
       <div class="shortcut-item">
+        <div class="shortcut-key">Ctrl + M</div>
+        <div class="shortcut-desc">메모리 모니터 표시/숨김</div>
+      </div>
+      <div class="shortcut-item">
+        <div class="shortcut-key">Ctrl + Shift + M</div>
+        <div class="shortcut-desc">메모리 정리 실행</div>
+      </div>
+      <div class="shortcut-item">
         <div class="shortcut-key">Escape</div>
         <div class="shortcut-desc">모달 창 닫기</div>
       </div>

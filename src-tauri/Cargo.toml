@@ -1,6 +1,6 @@
 [package]
 name = "fazzk-tauri"
-version = "2.7.0"
+version = "2.7.2"
 description = "치지직 팔로워 실시간 알림 앱"
 authors = ["minseok"]
 edition = "2021"
