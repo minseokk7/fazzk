@@ -1725,7 +1725,7 @@ OBS URL: ${url}
   <!-- 하단 네비게이션 바 -->
   <div class="bottom-nav-wrapper">
     <div class="bottom-nav">
-      <button class="nav-btn history-btn" onclick={() => (showHistory = true)} title="히스토리">
+      <button class="nav-btn history-btn" onclick={() => (showHistory = !showHistory)} title="히스토리">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path
             stroke-linecap="round"
@@ -1749,7 +1749,7 @@ OBS URL: ${url}
         <span>테스트</span>
       </button>
 
-      <button class="nav-btn settings-btn" onclick={() => (showSettings = true)} title="설정">
+      <button class="nav-btn settings-btn" onclick={() => (showSettings = !showSettings)} title="설정">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path
             stroke-linecap="round"
@@ -1775,7 +1775,7 @@ OBS URL: ${url}
       <div class="settings-header">
         <h2>설정</h2>
         <div class="header-buttons">
-          <button class="help-btn" onclick={() => (showKeyboardHelp = true)} title="키보드 단축키">
+          <button class="help-btn" onclick={() => (showKeyboardHelp = !showKeyboardHelp)} title="키보드 단축키">
             ❓
           </button>
           <button class="close-btn" onclick={() => (showSettings = false)}>×</button>

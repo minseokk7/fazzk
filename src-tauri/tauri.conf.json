@@ -37,7 +37,8 @@
       "nsis"
     ],
     "resources": [
-      "../dist/**/*"
+      "../dist",
+      "../scripts/**/*"
     ],
     "icon": [
       "icon.ico",

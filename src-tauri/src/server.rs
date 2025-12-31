@@ -69,26 +69,52 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     // 정적 파일 경로 (개발 vs 빌드 환경)
     // 통합 후 경로 수정: dist 폴더가 루트에 위치
     let resource_base = app_handle.path().resource_dir().ok();
+    println!("[Server] Resource base directory: {:?}", resource_base);
 
     let possible_paths = [
         // 개발 환경 - Tauri는 src-tauri에서 실행되므로 ../dist
         std::path::PathBuf::from("../dist"),
         // 개발 환경 - 직접 dist도 시도
         std::path::PathBuf::from("dist"),
-        // 빌드 환경 - 직접 dist
+        // 빌드 환경 - _up_/dist 경로 (Tauri 빌드 시 실제 경로)
+        resource_base
+            .as_ref()
+            .map(|p| p.join("_up_").join("dist"))
+            .unwrap_or_default(),
+        // 빌드 환경 - 직접 dist (번들된 폴더)
         resource_base
             .as_ref()
             .map(|p| p.join("dist"))
             .unwrap_or_default(),
-        // 빌드 환경 - 리소스 루트에 직접
+        // 빌드 환경 - 리소스 루트에 직접 (번들된 파일들이 루트에 있을 수 있음)
         resource_base.clone().unwrap_or_default(),
+        // 빌드 환경 - 추가 경로들 시도
+        resource_base
+            .as_ref()
+            .map(|p| p.parent().unwrap_or(p).join("dist"))
+            .unwrap_or_default(),
+        resource_base
+            .as_ref()
+            .map(|p| p.join("resources").join("dist"))
+            .unwrap_or_default(),
     ];
 
     let resource_path = possible_paths
         .iter()
-        .find(|p| p.join("index.html").exists())
-        .cloned()
-        .unwrap_or_else(|| std::path::PathBuf::from("../dist"));
+        .enumerate()
+        .find_map(|(i, p)| {
+            let index_path = p.join("index.html");
+            println!("[Server] 경로 시도 #{}: {:?} -> index.html 존재: {}", i + 1, p, index_path.exists());
+            if index_path.exists() {
+                Some(p.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            println!("[Server] 경고: 모든 경로에서 index.html을 찾을 수 없음, 기본값 사용");
+            std::path::PathBuf::from("../dist")
+        });
 
     let public_path = resource_path.join("public");
 
