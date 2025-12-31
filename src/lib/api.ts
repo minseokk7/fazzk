@@ -78,12 +78,12 @@ export const api: API = {
   },
 
   getAppVersion: async (): Promise<string> => {
-    if (!isTauri) return '2.6.0';
+    if (!isTauri) return '2.7.0';
     try {
       return await invoke('get_app_version');
     } catch (e) {
       console.error('getAppVersion failed', e);
-      return '2.6.0';
+      return '2.7.0';
     }
   },
 

@@ -362,8 +362,8 @@ body {
   backdrop-filter: blur(20px);
   padding: 30px;
   border-radius: 16px;
-  width: 90%;
-  max-width: 400px;
+  width: 320px !important;
+  max-width: 90vw !important;
   z-index: 2000;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -516,6 +516,7 @@ body.obs-mode .notification-card {
   max-height: 80vh;
   display: flex;
   flex-direction: column;
+  width: 300px !important;
 }
 
 .history-modal .history-item {
