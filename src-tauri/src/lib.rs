@@ -244,6 +244,15 @@ pub fn run() {
             let handle = app.handle().clone();
             let state = server_state.clone();
 
+            // scripts 폴더 및 파일 생성
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = ensure_scripts_folder().await {
+                    log::error!("scripts 폴더 생성 실패: {}", e);
+                } else {
+                    log::info!("scripts 폴더 및 파일 준비 완료");
+                }
+            });
+
             // 서버 시작
             tauri::async_runtime::spawn(async move {
                 server::start_server(state, handle).await;
@@ -343,4 +352,135 @@ async fn get_app_dir(_app: tauri::AppHandle) -> Result<String, String> {
     {
         Ok(exe_dir.to_string_lossy().to_string())
     }
+}
+
+/// scripts 폴더와 obs-redirector.html 파일을 생성합니다.
+async fn ensure_scripts_folder() -> Result<(), String> {
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("실행 파일 디렉토리를 찾을 수 없습니다")?;
+    
+    let scripts_dir = exe_dir.join("scripts");
+    
+    // scripts 폴더 생성
+    if !scripts_dir.exists() {
+        std::fs::create_dir_all(&scripts_dir).map_err(|e| {
+            format!("scripts 폴더 생성 실패: {}", e)
+        })?;
+        log::info!("scripts 폴더 생성됨: {:?}", scripts_dir);
+    }
+    
+    // obs-redirector.html 파일 생성
+    let redirector_file = scripts_dir.join("obs-redirector.html");
+    if !redirector_file.exists() {
+        let redirector_content = r#"<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fazzk OBS 리다이렉터</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: transparent;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            text-align: center;
+        }
+        .loading {
+            font-size: 16px;
+            opacity: 0.8;
+        }
+        .error {
+            color: #ff6b6b;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading">Fazzk 서버 연결 중...</div>
+    <div id="error" class="error" style="display: none;"></div>
+
+    <script>
+        console.log('[OBS Redirector] 시작됨');
+        
+        // 포트 정보 파일에서 동적 포트 읽기
+        async function getServerPort() {
+            try {
+                // 임시 폴더에서 포트 정보 읽기
+                const tempDir = navigator.platform.includes('Win') ? 
+                    'C:/Users/' + (navigator.userAgent.match(/Windows NT.*?(\w+)/)?.[1] || 'USER') + '/AppData/Local/Temp/' :
+                    '/tmp/';
+                
+                const portFile = tempDir + 'fazzk_port.txt';
+                const infoFile = tempDir + 'fazzk_info.json';
+                
+                // 여러 방법으로 포트 정보 시도
+                const methods = [
+                    () => fetch('file://' + infoFile).then(r => r.json()).then(data => data.port),
+                    () => fetch('file://' + portFile).then(r => r.text()).then(port => parseInt(port.trim())),
+                    () => Promise.resolve(3001), // 기본 포트
+                ];
+                
+                for (const method of methods) {
+                    try {
+                        const port = await method();
+                        if (port && port > 1000 && port < 65536) {
+                            console.log('[OBS Redirector] 포트 발견:', port);
+                            return port;
+                        }
+                    } catch (e) {
+                        console.log('[OBS Redirector] 포트 방법 실패:', e.message);
+                    }
+                }
+                
+                return 3001; // 최종 폴백
+            } catch (e) {
+                console.error('[OBS Redirector] 포트 읽기 실패:', e);
+                return 3001;
+            }
+        }
+        
+        // 서버 연결 및 리다이렉트
+        async function connectToServer() {
+            try {
+                const port = await getServerPort();
+                const serverUrl = `http://localhost:${port}/follower`;
+                
+                console.log('[OBS Redirector] 서버 URL:', serverUrl);
+                
+                // 서버 연결 테스트
+                const response = await fetch(`http://localhost:${port}/settings`);
+                if (response.ok) {
+                    console.log('[OBS Redirector] 서버 연결 성공, 리다이렉트 중...');
+                    window.location.href = serverUrl;
+                } else {
+                    throw new Error(`서버 응답 오류: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('[OBS Redirector] 연결 실패:', error);
+                document.querySelector('.loading').style.display = 'none';
+                const errorDiv = document.getElementById('error');
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = `서버 연결 실패: ${error.message}`;
+                
+                // 3초 후 재시도
+                setTimeout(connectToServer, 3000);
+            }
+        }
+        
+        // 페이지 로드 시 연결 시도
+        connectToServer();
+    </script>
+</body>
+</html>"#;
+        
+        std::fs::write(&redirector_file, redirector_content).map_err(|e| {
+            format!("obs-redirector.html 파일 생성 실패: {}", e)
+        })?;
+        log::info!("obs-redirector.html 파일 생성됨: {:?}", redirector_file);
+    }
+    
+    Ok(())
 }

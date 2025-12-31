@@ -67,7 +67,7 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     start_follower_monitoring(app_state.clone(), ws_manager.clone()).await;
 
     // 정적 파일 경로 (개발 vs 빌드 환경)
-    // 통합 후 경로 수정: dist 폴더가 루트에 위치
+    // Tauri 2.0에서는 frontendDist가 자동으로 처리됨
     let resource_base = app_handle.path().resource_dir().ok();
     println!("[Server] Resource base directory: {:?}", resource_base);
 

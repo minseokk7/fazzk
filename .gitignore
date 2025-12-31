@@ -1,36 +1,66 @@
 # Dependencies
-node_modules
-target
-*.local
+node_modules/
 
-# Build Outputs
-dist
-dist-ssr
-build
-src-tauri/target
+# Build outputs
+dist/
+src-tauri/target/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 
-# System
-.DS_Store
-Thumbs.db
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# IDE & Editor
-.vscode
-.idea
-*.suo
-*.ntvs*
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+*.local
 *.njsproj
+*.ntvs*
+*.pem
 *.sln
+*.suo
 *.sw?
-
-# Security
+.idea
+.vscode
+build
+dist
+dist-ssr
 key_info.txt
 key_utf8.txt
-*.pem
+logs
+node_modules
+npm-debug.log*
+pnpm-debug.log*
+src-tauri/target
+target
+yarn-debug.log*
+yarn-error.log*
