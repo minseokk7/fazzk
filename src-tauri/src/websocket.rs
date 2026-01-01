@@ -226,9 +226,14 @@ pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<crate::server::ServerState>,
 ) -> axum::response::Response {
-    log::info!("[WebSocket] New connection attempt");
+    log::info!("[WebSocket] New connection attempt received");
+    println!("[WebSocket] WebSocket upgrade request received");
+    println!("[WebSocket] Headers: {:?}", ws);
     let ws_manager = state.ws_manager.clone();
-    ws.on_upgrade(move |socket| handle_socket(socket, ws_manager))
+    ws.on_upgrade(move |socket| {
+        println!("[WebSocket] WebSocket upgrade successful, handling socket");
+        handle_socket(socket, ws_manager)
+    })
 }
 
 async fn handle_socket(socket: WebSocket, ws_manager: WSConnectionPool) {

@@ -882,6 +882,9 @@
   // WebSocket 초기화
   function initializeWebSocket() {
     console.log('[WebSocket] Initializing WebSocket connection');
+    console.log('[WebSocket] Base URL:', baseUrl);
+    console.log('[WebSocket] Tauri mode:', api.isTauri);
+    console.log('[WebSocket] Expected WebSocket URL:', `${baseUrl.replace('http', 'ws')}/ws`);
 
     try {
       wsClient = new WSClient(baseUrl);
@@ -955,6 +958,7 @@
       });
 
       // 연결 시작
+      console.log('[WebSocket] Starting connection...');
       wsClient.connect();
     } catch (error) {
       console.error('[WebSocket] Failed to initialize:', error);
@@ -2185,7 +2189,7 @@
   }
 </script>
 
-<div class="notifier-container" tabindex="-1" onclick={() => document.activeElement?.blur()}>
+<div class="notifier-container">
   <audio bind:this={audio} id="notificationSound" preload="auto"></audio>
 
   <!-- Session Banner Component -->
@@ -2220,15 +2224,58 @@
 
   <!-- Settings Modal Component -->
   {#if showSettings}
-    <div class="modal-overlay" onclick={() => (showSettings = false)}>
-      <div class="settings-modal" onclick={(e) => e.stopPropagation()} style="width: 400px !important; max-width: 90vw !important;">
+    <div class="modal-overlay" 
+         tabindex="0"
+         onclick={() => (showSettings = false)}
+         onkeydown={(e) => {
+           if (e.key === 'Enter' || e.key === ' ') {
+             e.preventDefault();
+             showSettings = false;
+           }
+         }}
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="settings-modal-title"
+    >
+      <div class="settings-modal" 
+           tabindex="0"
+           onclick={(e) => e.stopPropagation()} 
+           onkeydown={(e) => {
+             if (e.key === 'Escape') {
+               e.preventDefault();
+               showSettings = false;
+             }
+           }}
+           style="width: 400px !important; max-width: 90vw !important;"
+           role="dialog"
+           aria-labelledby="settings-modal-title"
+      >
         <div class="modal-header">
-          <h2>설정</h2>
+          <h2 id="settings-modal-title">설정</h2>
           <div class="header-buttons">
-            <button class="help-btn" onclick={() => (showKeyboardHelp = !showKeyboardHelp)} title="키보드 단축키">
+            <button class="help-btn" 
+                    onclick={() => (showKeyboardHelp = !showKeyboardHelp)} 
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        showKeyboardHelp = !showKeyboardHelp;
+                      }
+                    }}
+                    title="키보드 단축키"
+                    aria-label="키보드 단축키 도움말 열기"
+            >
               ❓
             </button>
-            <button class="close-btn" onclick={() => (showSettings = false)}>×</button>
+            <button class="close-btn" 
+                    onclick={() => (showSettings = false)}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        showSettings = false;
+                      }
+                    }}
+                    aria-label="설정 창 닫기"
+            >×</button>
           </div>
         </div>
         
@@ -2258,7 +2305,16 @@
           <div class="form-group">
             <label for="sound">알림음 설정</label>
             <div class="file-select-group">
-              <button class="btn btn-secondary" onclick={selectSoundFile}>파일 선택</button>
+              <button class="btn btn-secondary" 
+                      onclick={selectSoundFile}
+                      onkeydown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          selectSoundFile();
+                        }
+                      }}
+                      aria-label="알림음 파일 선택"
+              >파일 선택</button>
               <div class="file-path-display">
                 {customSoundPath ? customSoundPath.split('\\').pop() : '기본 알림음'}
               </div>
@@ -2294,7 +2350,16 @@
           </div>
 
           <div style="margin-top:20px; text-align:right;">
-            <button class="btn btn-secondary" onclick={saveSettings}>저장</button>
+            <button class="btn btn-secondary" 
+                    onclick={saveSettings}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        saveSettings();
+                      }
+                    }}
+                    aria-label="설정 저장"
+            >저장</button>
           </div>
 
           <div class="obs-section">
@@ -2304,7 +2369,16 @@
               <p class="method-title">방법 1: 직접 URL (현재 포트)</p>
               <div class="url-display">
                 <code>{obsUrl}</code>
-                <button class="copy-btn" onclick={copyOBSUrl}>복사</button>
+                <button class="copy-btn" 
+                        onclick={copyOBSUrl}
+                        onkeydown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            copyOBSUrl();
+                          }
+                        }}
+                        aria-label="OBS URL 복사"
+                >복사</button>
               </div>
               <p class="method-note">⚠️ 포트 변경 시 OBS에서 URL을 다시 설정해야 합니다</p>
             </div>
@@ -2313,7 +2387,16 @@
               <p class="method-title">방법 2: 리다이렉터 파일 (권장)</p>
               <div class="url-display">
                 <code>{userPath || 'scripts/obs-redirector.html'}</code>
-                <button class="copy-btn" onclick={copyRedirectorPath}>복사</button>
+                <button class="copy-btn" 
+                        onclick={copyRedirectorPath}
+                        onkeydown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            copyRedirectorPath();
+                          }
+                        }}
+                        aria-label="리다이렉터 파일 경로 복사"
+                >복사</button>
               </div>
               <p class="method-note">✅ 포트 변경 시에도 자동으로 연결됩니다</p>
             </div>
@@ -2329,11 +2412,44 @@
 
   <!-- History Modal Component -->
   {#if showHistory}
-    <div class="modal-overlay" onclick={() => (showHistory = false)}>
-      <div class="history-modal" onclick={(e) => e.stopPropagation()} style="width: 370px !important; max-width: 90vw !important;">
+    <div class="modal-overlay" 
+         tabindex="0"
+         onclick={() => (showHistory = false)}
+         onkeydown={(e) => {
+           if (e.key === 'Enter' || e.key === ' ') {
+             e.preventDefault();
+             showHistory = false;
+           }
+         }}
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="history-modal-title"
+    >
+      <div class="history-modal" 
+           tabindex="0"
+           onclick={(e) => e.stopPropagation()} 
+           onkeydown={(e) => {
+             if (e.key === 'Escape') {
+               e.preventDefault();
+               showHistory = false;
+             }
+           }}
+           style="width: 370px !important; max-width: 90vw !important;"
+           role="dialog"
+           aria-labelledby="history-modal-title"
+      >
         <div class="modal-header">
-          <h2>알림 기록</h2>
-          <button class="close-btn" onclick={() => (showHistory = false)}>×</button>
+          <h2 id="history-modal-title">알림 기록</h2>
+          <button class="close-btn" 
+                  onclick={() => (showHistory = false)}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      showHistory = false;
+                    }
+                  }}
+                  aria-label="기록 창 닫기"
+          >×</button>
         </div>
         
         <div class="modal-body">
@@ -2353,7 +2469,16 @@
             </div>
             
             <div class="history-footer">
-              <button class="btn btn-secondary" onclick={clearHistory}>기록 지우기</button>
+              <button class="btn btn-secondary" 
+                      onclick={clearHistory}
+                      onkeydown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          clearHistory();
+                        }
+                      }}
+                      aria-label="알림 기록 모두 지우기"
+              >기록 지우기</button>
             </div>
           {/if}
         </div>
@@ -2421,8 +2546,7 @@
   }
 
   div.notifier-container div.settings-modal,
-  div.notifier-container div.history-modal,
-  div.notifier-container div.keyboard-help-modal {
+  div.notifier-container div.history-modal {
     position: relative !important;
     top: auto !important;
     left: auto !important;
@@ -2446,8 +2570,7 @@
     opacity: 1 !important;
   }
 
-  div.notifier-container div.history-modal,
-  div.notifier-container div.keyboard-help-modal {
+  div.notifier-container div.history-modal {
     width: 300px !important;
   }
 
@@ -2707,50 +2830,6 @@
     background: linear-gradient(135deg, #2c3e50, #34495e);
     position: sticky;
     bottom: 0;
-  }
-
-  .keyboard-shortcuts {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-  }
-
-  .shortcut-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .shortcut-key {
-    background: rgba(0, 255, 163, 0.2);
-    color: var(--primary-color);
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-family: 'Courier New', monospace;
-    font-weight: bold;
-    font-size: 0.9rem;
-    border: 1px solid rgba(0, 255, 163, 0.3);
-  }
-
-  .shortcut-desc {
-    flex: 1;
-    margin-left: 16px;
-    font-size: 0.95rem;
-    color: var(--text-color);
-  }
-
-  .tip-message {
-    text-align: center;
-    font-size: 0.9rem;
-    opacity: 0.7;
-    color: var(--text-color);
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
 
 </style>

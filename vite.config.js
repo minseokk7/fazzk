@@ -17,12 +17,45 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    target: 'es2020',
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // 프로덕션에서 console.log 제거
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug'],
+      },
+      mangle: {
+        safari10: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // 벤더 라이브러리 분리
+          vendor: ['svelte', 'svelte/store'],
+          router: ['svelte-spa-router'],
+          tauri: ['@tauri-apps/api'],
+        },
+      },
+    },
+    // 청크 크기 경고 임계값 조정
+    chunkSizeWarningLimit: 1000,
   },
   resolve: {
     alias: {
       '$lib': '/src/lib',
       '$routes': '/src/routes'
     }
-  }
+  },
+  // 의존성 최적화
+  optimizeDeps: {
+    include: [
+      'svelte',
+      'svelte/store',
+      'svelte-spa-router',
+      '@tauri-apps/api',
+    ],
+  },
 })

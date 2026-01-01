@@ -145,4 +145,9 @@
       display: none;
     }
   }
+
+  /* OBS 모드에서 토스트 알림 숨김 */
+  :global(.obs-mode) .toast-container {
+    display: none !important;
+  }
 </style>

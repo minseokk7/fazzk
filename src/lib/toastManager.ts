@@ -41,6 +41,12 @@ class ToastManagerClass {
 
   // 토스트 표시
   show(toast: Omit<ToastNotification, 'id' | 'timestamp'>): string {
+    // OBS 모드에서는 토스트 알림을 표시하지 않음
+    if (this.isOBSMode()) {
+      console.log(`[Toast] OBS 모드에서 토스트 알림 무시: ${toast.type.toUpperCase()}: ${toast.title} - ${toast.message}`);
+      return ''; // 빈 ID 반환
+    }
+
     // 중복 방지: 같은 제목과 타입의 토스트가 이미 있으면 기존 것을 제거
     const existingToast = this.toasts.find(t => 
       t.title === toast.title && 
@@ -73,6 +79,17 @@ class ToastManagerClass {
 
     console.log(`[Toast] ${toast.type.toUpperCase()}: ${toast.title} - ${toast.message}`);
     return id;
+  }
+
+  // OBS 모드 감지
+  private isOBSMode(): boolean {
+    if (typeof window === 'undefined') return false;
+    
+    return !!(
+      window.OBS_MODE ||
+      window.DIRECT_NOTIFIER_MODE ||
+      document.body?.classList.contains('obs-mode')
+    );
   }
 
   // 기본 지속 시간 계산

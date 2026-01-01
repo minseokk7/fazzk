@@ -21,7 +21,18 @@
 
 {#if showSettings}
   <!-- 배경 오버레이 -->
-  <div class="modal-overlay" onclick={() => (showSettings = false)}></div>
+  <div class="modal-overlay" 
+       role="button" 
+       tabindex="0"
+       aria-label="모달 닫기"
+       onclick={() => (showSettings = false)}
+       onkeydown={(e) => {
+         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+           e.preventDefault();
+           showSettings = false;
+         }
+       }}
+  ></div>
   
   <!-- 모달 컨텐츠 -->
   <div class="settings-modal">

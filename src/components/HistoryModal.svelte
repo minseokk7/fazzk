@@ -35,7 +35,18 @@
 
 {#if showHistory}
   <!-- 배경 오버레이 -->
-  <div class="modal-overlay" onclick={() => (showHistory = false)}></div>
+  <div class="modal-overlay" 
+       role="button" 
+       tabindex="0"
+       aria-label="모달 닫기"
+       onclick={() => (showHistory = false)}
+       onkeydown={(e) => {
+         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+           e.preventDefault();
+           showHistory = false;
+         }
+       }}
+  ></div>
   
   <!-- 모달 컨텐츠 -->
   <div class="history-modal">
@@ -173,14 +184,6 @@
 
   .history-item:hover {
     background: rgba(255, 255, 255, 0.1);
-  }
-
-  .profile-img {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid rgba(255, 255, 255, 0.2);
   }
 
   .info {

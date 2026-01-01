@@ -14,11 +14,15 @@
     "isolatedModules": true,
     "noEmit": true,
 
-    /* Linting */
+    /* Linting - 엄격 모드 강화 */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
 
     /* Tauri specific */
     "allowSyntheticDefaultImports": true,

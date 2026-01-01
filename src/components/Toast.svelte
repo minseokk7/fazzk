@@ -64,7 +64,18 @@
   role="alert"
   aria-live="polite"
 >
-  <div class="toast-content" on:click={handleClick}>
+  <div class="toast-content" 
+       role="button" 
+       tabindex="0"
+       onclick={handleClick}
+       onkeydown={(e) => {
+         if (e.key === 'Enter' || e.key === ' ') {
+           e.preventDefault();
+           handleClick();
+         }
+       }}
+       aria-label={toast.persistent ? toast.title : `${toast.title} - 클릭하여 닫기`}
+  >
     <div class="toast-icon">
       {icons[toast.type]}
     </div>
@@ -79,7 +90,10 @@
     {#if !toast.persistent}
       <button 
         class="toast-close" 
-        on:click|stopPropagation={handleClose}
+        onclick={(e) => {
+          e.stopPropagation();
+          handleClose();
+        }}
         aria-label="토스트 닫기"
       >
         ×
@@ -92,7 +106,10 @@
       {#each toast.actions as action}
         <button 
           class="toast-action {action.style || 'secondary'}"
-          on:click|stopPropagation={() => handleAction(action)}
+          onclick={(e) => {
+            e.stopPropagation();
+            handleAction(action);
+          }}
         >
           {action.label}
         </button>

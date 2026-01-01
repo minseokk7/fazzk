@@ -36,6 +36,7 @@ interface EventHandlers {
   connected: EventHandler<void>[];
   disconnected: EventHandler<void>[];
   error: EventHandler<Error>[];
+  reconnecting: EventHandler<{ attempt: number; maxAttempts: number }>[];
 }
 
 // WebSocket 상태 타입
@@ -44,7 +45,23 @@ interface WSStatus {
   connecting: boolean;
   reconnectAttempts: number;
   destroyed: boolean;
+  lastError?: string;
+  lastConnected?: number;
 }
+
+// WebSocket 에러 타입
+interface WSError extends Error {
+  code?: number;
+  reason?: string;
+  type: 'connection' | 'message' | 'timeout' | 'server';
+}
+
+import { globalErrorHandler } from './errorHandler';
+import { createLogger } from './logger';
+import { loadingManager } from './loadingManager';
+import { connectionManager } from './connectionManager';
+
+const log = createLogger('WebSocket');
 
 // WebSocket 클라이언트 관리
 export class WSClient {
@@ -55,6 +72,12 @@ export class WSClient {
   private reconnectDelay: number = 1000; // 1초
   private isConnecting: boolean = false;
   private isDestroyed: boolean = false;
+  private lastError: string | null = null;
+  private lastConnected: number | null = null;
+  private connectionTimeout: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private readonly connectionTimeoutMs = 10000; // 10초
+  private readonly pingIntervalMs = 30000; // 30초
 
   // 이벤트 핸들러들
   private eventHandlers: EventHandlers = {
@@ -64,46 +87,179 @@ export class WSClient {
     connected: [],
     disconnected: [],
     error: [],
+    reconnecting: [],
   };
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace('http', 'ws');
-    console.log('[WebSocket] Client initialized with URL:', this.baseUrl);
+    log.info('Client initialized with URL:', this.baseUrl);
+
+    // 연결 관리자 이벤트 리스너 설정
+    this.setupConnectionManagerEvents();
+  }
+
+  // 연결 관리자 이벤트 설정
+  private setupConnectionManagerEvents(): void {
+    // 재연결 요청 이벤트
+    window.addEventListener('connection:reconnect', () => {
+      this.connect();
+    });
+
+    // 강제 연결 해제 이벤트
+    window.addEventListener('connection:force-disconnect', () => {
+      if (this.ws) {
+        this.ws.close(1000, 'Force disconnect');
+      }
+    });
+
+    // 핑 요청 이벤트
+    window.addEventListener('connection:ping-request', () => {
+      if (this.isConnected()) {
+        connectionManager.startPing();
+        this.ping();
+      }
+    });
+  }
+
+  // 에러 생성 헬퍼
+  private createWSError(message: string, type: WSError['type'], code?: number, reason?: string): WSError {
+    const error = new Error(message) as WSError;
+    error.type = type;
+    error.code = code;
+    error.reason = reason;
+    return error;
+  }
+
+  // 에러 처리
+  private handleError(error: WSError): void {
+    this.lastError = error.message;
+    log.error(`WebSocket error [${error.type}]:`, error.message, error);
+    
+    // 연결 관리자에 에러 알림
+    connectionManager.onDisconnected(error.message, error.code);
+    
+    // 전역 에러 핸들러에 보고
+    globalErrorHandler.handleError(error, {
+      component: 'WebSocket',
+      type: error.type,
+      code: error.code,
+      reason: error.reason,
+      reconnectAttempts: this.reconnectAttempts
+    });
+
+    // 로컬 에러 이벤트 발생
+    this.emit('error', error);
+  }
+
+  // 연결 타임아웃 설정
+  private setConnectionTimeout(): void {
+    this.clearConnectionTimeout();
+    
+    this.connectionTimeout = setTimeout(() => {
+      if (this.isConnecting) {
+        log.warn('Connection timeout');
+        this.isConnecting = false;
+        
+        if (this.ws) {
+          this.ws.close();
+        }
+        
+        const error = this.createWSError(
+          'Connection timeout',
+          'timeout'
+        );
+        this.handleError(error);
+        connectionManager.startReconnect();
+      }
+    }, this.connectionTimeoutMs);
+  }
+
+  // 연결 타임아웃 해제
+  private clearConnectionTimeout(): void {
+    if (this.connectionTimeout) {
+      clearTimeout(this.connectionTimeout);
+      this.connectionTimeout = null;
+    }
+  }
+
+  // 핑 인터벌 시작
+  private startPingInterval(): void {
+    this.stopPingInterval();
+    
+    this.pingInterval = setInterval(() => {
+      if (this.isConnected()) {
+        connectionManager.startPing();
+        const success = this.ping();
+        if (!success) {
+          log.warn('Failed to send ping, connection may be lost');
+        }
+      }
+    }, this.pingIntervalMs);
+  }
+
+  // 핑 인터벌 중지
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   // 연결
   connect(): void {
     if (this.isDestroyed) {
-      console.log('[WebSocket] Client is destroyed, cannot connect');
+      log.warn('Client is destroyed, cannot connect');
       return;
     }
 
     if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.CONNECTING)) {
-      console.log('[WebSocket] Already connecting');
+      log.warn('Already connecting');
       return;
     }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log('[WebSocket] Already connected');
+      log.info('Already connected');
       return;
     }
 
     this.isConnecting = true;
     const wsUrl = `${this.baseUrl}/ws`;
+    const connectionId = crypto.randomUUID();
 
-    console.log('[WebSocket] Connecting to:', wsUrl);
+    log.info('Connecting to:', wsUrl);
+    log.info('Base URL:', this.baseUrl);
+    log.info('Connection ID:', connectionId);
+
+    // 연결 관리자에 연결 시작 알림
+    connectionManager.startConnection(connectionId);
 
     try {
       this.ws = new WebSocket(wsUrl);
+      this.setConnectionTimeout();
 
       this.ws.onopen = () => {
-        console.log('[WebSocket] Connected successfully');
+        log.info('Connected successfully to:', wsUrl);
+        this.clearConnectionTimeout();
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
+        this.lastConnected = Date.now();
+        this.lastError = null;
+
+        // 연결 관리자에 연결 성공 알림
+        connectionManager.onConnected({
+          version: '1.0.0', // 서버에서 받아올 수 있다면
+          clientCount: 1
+        });
+
+        // 핑 인터벌 시작
+        this.startPingInterval();
 
         // 팔로워 토픽 구독
-        this.subscribe(['followers']);
+        const subscribed = this.subscribe(['followers']);
+        if (!subscribed) {
+          log.warn('Failed to subscribe to topics after connection');
+        }
 
         // 연결 이벤트 발생
         this.emit('connected');
@@ -114,110 +270,123 @@ export class WSClient {
           const message: WebSocketMessage = JSON.parse(event.data);
           this.handleMessage(message);
         } catch (e) {
-          console.error('[WebSocket] Failed to parse message:', e, event.data);
+          const error = this.createWSError(
+            `Failed to parse message: ${e instanceof Error ? e.message : String(e)}`,
+            'message'
+          );
+          this.handleError(error);
         }
       };
 
       this.ws.onclose = (event: CloseEvent) => {
-        console.log('[WebSocket] Connection closed:', event.code, event.reason);
+        log.info('Connection closed:', event.code, event.reason, 'URL:', wsUrl);
+        this.clearConnectionTimeout();
+        this.stopPingInterval();
         this.isConnecting = false;
         this.ws = null;
+
+        // 연결 관리자에 연결 해제 알림
+        const errorMessage = event.code !== 1000 ? `Connection closed: ${event.reason || 'Unknown reason'}` : undefined;
+        connectionManager.onDisconnected(errorMessage, event.code);
 
         // 연결 해제 이벤트 발생
         this.emit('disconnected');
 
         // 자동 재연결 (정상 종료가 아닌 경우)
         if (!this.isDestroyed && event.code !== 1000) {
-          this.scheduleReconnect();
+          connectionManager.startReconnect();
         }
       };
 
       this.ws.onerror = (error: Event) => {
-        console.error('[WebSocket] Connection error:', error);
+        log.error('Connection error for URL:', wsUrl, 'Error:', error);
+        this.clearConnectionTimeout();
         this.isConnecting = false;
 
-        // 오류 이벤트 발생
-        this.emit('error', new Error('WebSocket connection error'));
+        const wsError = this.createWSError(
+          `WebSocket connection error for ${wsUrl}`,
+          'connection'
+        );
+        this.handleError(wsError);
       };
     } catch (e) {
-      console.error('[WebSocket] Failed to create WebSocket:', e);
+      log.error('Failed to create WebSocket for URL:', wsUrl, 'Error:', e);
+      this.clearConnectionTimeout();
       this.isConnecting = false;
-      this.scheduleReconnect();
+      
+      const error = this.createWSError(
+        `Failed to create WebSocket: ${e instanceof Error ? e.message : String(e)}`,
+        'connection'
+      );
+      this.handleError(error);
+      connectionManager.startReconnect();
     }
-  }
-
-  // 재연결 스케줄링
-  private scheduleReconnect(): void {
-    if (this.isDestroyed) return;
-
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[WebSocket] Max reconnect attempts reached');
-      this.emit('error', new Error('Max reconnect attempts reached'));
-      return;
-    }
-
-    this.reconnectAttempts++;
-    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
-
-    console.log(
-      `[WebSocket] Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`
-    );
-
-    setTimeout(() => {
-      if (!this.isDestroyed) {
-        this.connect();
-      }
-    }, delay);
   }
 
   // 메시지 처리
   private handleMessage(message: WebSocketMessage): void {
-    console.log('[WebSocket] Received message:', message);
+    log.debug('Received message:', message);
 
-    switch (message.type) {
-      case 'pong':
-        console.log('[WebSocket] Pong received');
-        break;
+    try {
+      switch (message.type) {
+        case 'pong':
+          log.debug('Pong received');
+          // 연결 관리자에 퐁 알림
+          connectionManager.onPong();
+          break;
 
-      case 'new_follower':
-        console.log('[WebSocket] New follower received:', message.follower);
-        console.log('[WebSocket] Follower nickname:', message.follower?.user?.nickname);
-        this.emit('new_follower', message.follower);
-        break;
+        case 'new_follower':
+          log.info('New follower received:', message.follower?.user?.nickname);
+          this.emit('new_follower', message.follower);
+          break;
 
-      case 'test_notification':
-        console.log('[WebSocket] Test notification received:', message.follower);
-        console.log('[WebSocket] Test follower nickname:', message.follower?.user?.nickname);
-        this.emit('test_notification', message.follower);
-        break;
+        case 'test_notification':
+          log.info('Test notification received:', message.follower?.user?.nickname);
+          this.emit('test_notification', message.follower);
+          break;
 
-      case 'settings_updated':
-        console.log('[WebSocket] Settings updated:', message.settings);
-        this.emit('settings_updated', message.settings);
-        break;
+        case 'settings_updated':
+          log.info('Settings updated');
+          this.emit('settings_updated', message.settings);
+          break;
 
-      case 'error':
-        console.error('[WebSocket] Server error:', message.message);
-        this.emit('error', new Error(message.message || 'Unknown server error'));
-        break;
+        case 'error':
+          const serverError = this.createWSError(
+            message.message || 'Unknown server error',
+            'server'
+          );
+          this.handleError(serverError);
+          break;
 
-      default:
-        console.log('[WebSocket] Unknown message type:', message.type);
+        default:
+          log.warn('Unknown message type:', message.type);
+      }
+    } catch (e) {
+      const error = this.createWSError(
+        `Error handling message: ${e instanceof Error ? e.message : String(e)}`,
+        'message'
+      );
+      this.handleError(error);
     }
   }
 
   // 메시지 전송
   private send(message: WebSocketMessage): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WebSocket] Cannot send message - not connected');
+      log.warn('Cannot send message - not connected');
       return false;
     }
 
     try {
       this.ws.send(JSON.stringify(message));
+      log.debug('Message sent:', message.type);
       return true;
     } catch (e) {
-      console.error('[WebSocket] Failed to send message:', e);
+      const error = this.createWSError(
+        `Failed to send message: ${e instanceof Error ? e.message : String(e)}`,
+        'message'
+      );
+      this.handleError(error);
       return false;
     }
   }
@@ -248,8 +417,9 @@ export class WSClient {
   on<K extends keyof EventHandlers>(event: K, handler: EventHandlers[K][0]): void {
     if (this.eventHandlers[event]) {
       this.eventHandlers[event].push(handler);
+      log.debug(`Event listener added for: ${event}`);
     } else {
-      console.warn('[WebSocket] Unknown event type:', event);
+      log.warn('Unknown event type:', event);
     }
   }
 
@@ -259,6 +429,7 @@ export class WSClient {
       const index = this.eventHandlers[event].indexOf(handler);
       if (index > -1) {
         this.eventHandlers[event].splice(index, 1);
+        log.debug(`Event listener removed for: ${event}`);
       }
     }
   }
@@ -273,7 +444,11 @@ export class WSClient {
         try {
           handler(data);
         } catch (e) {
-          console.error('[WebSocket] Event handler error:', e);
+          const error = this.createWSError(
+            `Event handler error for ${event}: ${e instanceof Error ? e.message : String(e)}`,
+            'message'
+          );
+          this.handleError(error);
         }
       });
     }
@@ -286,8 +461,11 @@ export class WSClient {
 
   // 연결 해제
   disconnect(): void {
-    console.log('[WebSocket] Disconnecting...');
+    log.info('Disconnecting...');
     this.isDestroyed = true;
+
+    this.clearConnectionTimeout();
+    this.stopPingInterval();
 
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
@@ -298,6 +476,8 @@ export class WSClient {
     Object.keys(this.eventHandlers).forEach(event => {
       this.eventHandlers[event as keyof EventHandlers] = [] as any;
     });
+
+    log.info('WebSocket client disconnected and cleaned up');
   }
 
   // 상태 정보
@@ -307,6 +487,22 @@ export class WSClient {
       connecting: this.isConnecting,
       reconnectAttempts: this.reconnectAttempts,
       destroyed: this.isDestroyed,
+      lastError: this.lastError,
+      lastConnected: this.lastConnected,
     };
+  }
+
+  // 강제 재연결
+  forceReconnect(): void {
+    log.info('Force reconnecting...');
+    this.reconnectAttempts = 0;
+    this.lastError = null;
+    
+    if (this.ws) {
+      this.ws.close();
+    }
+    
+    // 연결 관리자를 통한 재연결
+    connectionManager.forceReconnect();
   }
 }

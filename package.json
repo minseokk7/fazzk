@@ -1,7 +1,7 @@
 {
   "name": "fazzk",
   "private": true,
-  "version": "2.7.2",
+  "version": "2.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -40,6 +40,7 @@
     "svelte": "^5.43.8",
     "svelte-check": "^4.3.5",
     "svelte-eslint-parser": "^1.4.1",
+    "terser": "^5.44.1",
     "typescript": "^5.9.3",
     "typescript-6": "npm:typescript@^6.0.0-dev.20251227",
     "typescript-svelte-plugin": "^0.3.50",

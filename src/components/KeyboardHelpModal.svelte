@@ -4,7 +4,18 @@
 
 {#if showKeyboardHelp}
   <!-- 배경 오버레이 -->
-  <div class="modal-overlay" onclick={() => (showKeyboardHelp = false)}></div>
+  <div class="modal-overlay" 
+       role="button" 
+       tabindex="0"
+       aria-label="모달 닫기"
+       onclick={() => (showKeyboardHelp = false)}
+       onkeydown={(e) => {
+         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+           e.preventDefault();
+           showKeyboardHelp = false;
+         }
+       }}
+  ></div>
   
   <!-- 모달 컨텐츠 -->
   <div class="keyboard-help-modal">

@@ -17,7 +17,7 @@
   let currentDownloadUrl = $state('');
   let isDownloading = $state(false);
   let downloadProgress = $state(0);
-  let currentAppVersion = $state('2.7.2'); // 기본값
+  let currentAppVersion = $state('2.8.0'); // 기본값
 
   onMount(async () => {
     // 다크 테마를 기본으로 설정
@@ -248,8 +248,9 @@
 
     <div class="manual-login-content" class:show={manualVisible}>
       <div class="input-group">
-        <label>쿠키 JSON (확장프로그램에서 복사한 값)</label>
+        <label for="cookie-json">쿠키 JSON (확장프로그램에서 복사한 값)</label>
         <textarea
+          id="cookie-json"
           bind:value={cookieJson}
           class="form-control"
           rows="5"
@@ -263,7 +264,18 @@
   <!-- 업데이트 모달 -->
   {#if showUpdateModal}
     <div class="update-modal">
-      <div class="update-modal-backdrop" onclick={() => (showUpdateModal = false)}></div>
+      <div class="update-modal-backdrop" 
+           role="button" 
+           tabindex="0"
+           aria-label="업데이트 모달 닫기"
+           onclick={() => (showUpdateModal = false)}
+           onkeydown={(e) => {
+             if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+               e.preventDefault();
+               showUpdateModal = false;
+             }
+           }}
+      ></div>
       <div class="update-modal-content">
         <div class="update-modal-glow-left"></div>
         <div class="update-modal-glow-right"></div>

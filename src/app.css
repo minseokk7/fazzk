@@ -1,34 +1,15 @@
+/* Web Fonts - Using Google Fonts as fallback */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
 :root {
   --glass-bg: rgba(30, 30, 30, 0.6);
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   --primary-color: #00ffa3;
   --text-color: #ffffff;
-  --font-family: 'Pretendard', sans-serif;
+  --font-family: 'Noto Sans KR', sans-serif;
   --body-bg: #121212;
   --modal-bg: rgba(20, 20, 20, 0.85);
-}
-
-/* Local Fonts */
-@font-face {
-  font-family: 'Pretendard';
-  src: url('/fonts/Pretendard-Medium.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Pretendard';
-  src: url('/fonts/Pretendard-Medium.woff2') format('woff2');
-  font-weight: 500;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Pretendard';
-  src: url('/fonts/Pretendard-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
 }
 
 [data-theme='light'] {

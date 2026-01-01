@@ -32,16 +32,15 @@ async fn log_requests(req: Request, next: Next) -> impl IntoResponse {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let path = uri.path();
+    let headers = req.headers().clone();
     
-    // 모든 요청 로깅
-    println!("[Server] {} {}", method, uri);
+    // 모든 요청 로깅 (WebSocket 포함)
+    println!("[Server] {} {} - Headers: {:?}", method, uri, headers.get("upgrade"));
     
     let response = next.run(req).await;
     
-    // 응답 상태도 로깅 (중요한 경로만)
-    if path.starts_with("/api") || path == "/followers" || path == "/settings" || path == "/follower" {
-        println!("[Server Response] {} {} -> {}", method, path, response.status());
-    }
+    // 응답 상태도 로깅
+    println!("[Server Response] {} {} -> {}", method, path, response.status());
     
     response
 }
@@ -139,6 +138,8 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         .route("/test-follower-get", get(test_follower_get))
         // WebSocket route (중요: API 라우트 다음에 배치)
         .route("/ws", get(crate::websocket::websocket_handler))
+        // 디버깅을 위한 WebSocket 테스트 라우트
+        .route("/ws-test", get(|| async { "WebSocket endpoint is working" }))
         // OBS 전용 라우트 (API 라우트 이후에 배치)
         .route("/follower", get(serve_svelte_obs))
         // Static file serving (public 폴더)
