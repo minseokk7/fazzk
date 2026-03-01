@@ -48,6 +48,20 @@ export class LoadingManager {
     message: string, 
     options?: Partial<Omit<LoadingState, 'id' | 'message' | 'startTime'>>
   ): void {
+    // OBS 모드에서는 로딩 상태를 추가하지 않음
+    const isOBSMode = !!(
+      (typeof window !== 'undefined') && (
+        (window as any).OBS_MODE ||
+        (window as any).DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      )
+    );
+
+    if (isOBSMode) {
+      log.debug(`Loading skipped in OBS mode: ${id} - ${message}`);
+      return;
+    }
+
     const state: LoadingState = {
       id,
       message,
@@ -63,6 +77,18 @@ export class LoadingManager {
     log.debug(`Loading started: ${id} - ${message}`);
     this.notifyListeners();
     this.notifyStatsListeners();
+  }
+
+  /**
+   * OBS 모드에서 모든 로딩 상태 정리
+   */
+  clearAllForOBSMode(): void {
+    if (this.loadingStates.size > 0) {
+      log.info(`Clearing ${this.loadingStates.size} loading states for OBS mode`);
+      this.loadingStates.clear();
+      this.notifyListeners();
+      this.notifyStatsListeners();
+    }
   }
 
   /**

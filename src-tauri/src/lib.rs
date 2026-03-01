@@ -1,4 +1,6 @@
 pub mod chzzk;
+pub mod error;
+pub mod monitor;
 pub mod server;
 pub mod state;
 pub mod updater;
@@ -8,8 +10,6 @@ use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
-
-
 
 /// 로깅 시스템 초기화
 fn init_logging() {
@@ -29,27 +29,29 @@ fn init_logging() {
     }
 }
 
-
 /// 로그인 상태를 업데이트하는 헬퍼 함수
 fn update_login_state(
     state: &AppState,
     cookie_data: state::CookieData,
     user_id_hash: String,
 ) -> Result<(), String> {
-    state.cookies
+    state
+        .cookies
         .lock()
         .map_err(|e| format!("쿠키 잠금 실패: {}", e))?
         .replace(cookie_data);
-    
-    *state.login_status
+
+    *state
+        .login_status
         .lock()
         .map_err(|e| format!("로그인 상태 잠금 실패: {}", e))? = true;
-    
-    state.user_id_hash
+
+    state
+        .user_id_hash
         .lock()
         .map_err(|e| format!("사용자 ID 잠금 실패: {}", e))?
         .replace(user_id_hash);
-    
+
     Ok(())
 }
 
@@ -217,7 +219,7 @@ async fn manual_login(
 pub fn run() {
     // 로깅 시스템 초기화
     init_logging();
-    
+
     let app_state = Arc::new(AppState::default());
     let server_state = app_state.clone();
 
@@ -265,18 +267,34 @@ pub fn run() {
             use tauri::tray::TrayIconBuilder;
 
             let show_item = MenuItem::with_id(app, "show", "보이기", true, None::<&str>)?;
+            let copy_url_item =
+                MenuItem::with_id(app, "copy_url", "OBS 연동 주소 복사", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &copy_url_item, &quit_item])?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                    }
+                    "copy_url" => {
+                        // 저장된 포트를 바탕으로 클립보드에 복사
+                        let _ = tauri::async_runtime::spawn(async {
+                            if let Ok(content) =
+                                std::fs::read_to_string(std::env::temp_dir().join("fazzk_port.txt"))
+                            {
+                                if let Ok(port) = content.trim().parse::<u16>() {
+                                    let url = format!("http://localhost:{}/follower", port);
+                                    let _ =
+                                        arboard::Clipboard::new().and_then(|mut c| c.set_text(url));
+                                }
+                            }
+                        });
                     }
                     "quit" => {
                         std::process::exit(0);
@@ -325,8 +343,6 @@ async fn get_server_port(state: tauri::State<'_, Arc<AppState>>) -> Result<u16, 
     Ok(*port)
 }
 
-
-
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -336,8 +352,10 @@ fn get_app_version() -> String {
 async fn get_app_dir(_app: tauri::AppHandle) -> Result<String, String> {
     // 현재 실행 파일의 디렉토리를 가져옴
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("실행 파일 디렉토리를 찾을 수 없습니다")?;
-    
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("실행 파일 디렉토리를 찾을 수 없습니다")?;
+
     // 개발 모드에서는 프로젝트 루트를 반환
     #[cfg(debug_assertions)]
     {
@@ -347,10 +365,10 @@ async fn get_app_dir(_app: tauri::AppHandle) -> Result<String, String> {
             .and_then(|p| p.parent()) // src-tauri
             .and_then(|p| p.parent()) // project root
             .ok_or("프로젝트 루트를 찾을 수 없습니다")?;
-        
+
         Ok(project_root.to_string_lossy().to_string())
     }
-    
+
     // 프로덕션 모드에서는 실행 파일 디렉토리를 반환
     #[cfg(not(debug_assertions))]
     {
@@ -361,18 +379,19 @@ async fn get_app_dir(_app: tauri::AppHandle) -> Result<String, String> {
 /// scripts 폴더와 obs-redirector.html 파일을 생성합니다.
 async fn ensure_scripts_folder() -> Result<(), String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe_path.parent().ok_or("실행 파일 디렉토리를 찾을 수 없습니다")?;
-    
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("실행 파일 디렉토리를 찾을 수 없습니다")?;
+
     let scripts_dir = exe_dir.join("scripts");
-    
+
     // scripts 폴더 생성
     if !scripts_dir.exists() {
-        std::fs::create_dir_all(&scripts_dir).map_err(|e| {
-            format!("scripts 폴더 생성 실패: {}", e)
-        })?;
+        std::fs::create_dir_all(&scripts_dir)
+            .map_err(|e| format!("scripts 폴더 생성 실패: {}", e))?;
         log::info!("scripts 폴더 생성됨: {:?}", scripts_dir);
     }
-    
+
     // obs-redirector.html 파일 생성
     let redirector_file = scripts_dir.join("obs-redirector.html");
     if !redirector_file.exists() {
@@ -479,12 +498,11 @@ async fn ensure_scripts_folder() -> Result<(), String> {
     </script>
 </body>
 </html>"#;
-        
-        std::fs::write(&redirector_file, redirector_content).map_err(|e| {
-            format!("obs-redirector.html 파일 생성 실패: {}", e)
-        })?;
+
+        std::fs::write(&redirector_file, redirector_content)
+            .map_err(|e| format!("obs-redirector.html 파일 생성 실패: {}", e))?;
         log::info!("obs-redirector.html 파일 생성됨: {:?}", redirector_file);
     }
-    
+
     Ok(())
 }

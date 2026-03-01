@@ -15,7 +15,7 @@
   let error = false;
   let observer: IntersectionObserver | null = null;
   let currentSrc = placeholder;
-  
+
   // WebP 지원 감지
   let supportsWebP = false;
 
@@ -24,12 +24,12 @@
     if (!originalSrc || !webpSupport || !supportsWebP) {
       return originalSrc;
     }
-    
+
     // 이미 WebP인 경우 그대로 반환
     if (originalSrc.includes('.webp')) {
       return originalSrc;
     }
-    
+
     // 외부 URL인 경우 WebP 변환 시도
     if (originalSrc.startsWith('http')) {
       // 치지직 프로필 이미지 WebP 변환
@@ -37,17 +37,18 @@
         return originalSrc.replace(/\.(jpg|jpeg|png)(\?.*)?$/i, '.webp$2');
       }
     }
-    
+
     return originalSrc;
   }
 
   function checkWebPSupport(): Promise<boolean> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const webP = new Image();
       webP.onload = webP.onerror = () => {
         resolve(webP.height === 2);
       };
-      webP.src = 'data:image/webp;base64,UklGRjoAAABXRUJQVlA4IC4AAACyAgCdASoCAAIALmk0mk0iIiIiIgBoSygABc6WWgAA/veff/0PP8bA//LwYAAA';
+      webP.src =
+        'data:image/webp;base64,UklGRjoAAABXRUJQVlA4IC4AAACyAgCdASoCAAIALmk0mk0iIiIiIgBoSygABc6WWgAA/veff/0PP8bA//LwYAAA';
     });
   }
 
@@ -69,7 +70,7 @@
   async function loadImage() {
     if (src && src !== placeholder) {
       const optimizedSrc = getOptimizedSrc(src);
-      
+
       const img = new Image();
       img.onload = () => {
         currentSrc = optimizedSrc;
@@ -93,24 +94,26 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
     // WebP 지원 확인
-    supportsWebP = await checkWebPSupport();
-    
+    checkWebPSupport().then(supported => {
+      supportsWebP = supported;
+    });
+
     // Intersection Observer를 사용한 레이지 로딩
     if ('IntersectionObserver' in window) {
       observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
+        entries => {
+          entries.forEach(entry => {
             if (entry.isIntersecting && !loaded && !error) {
               loadImage();
               observer?.unobserve(entry.target);
             }
           });
         },
-        { 
+        {
           threshold,
-          rootMargin: '50px' // 50px 전에 미리 로드
+          rootMargin: '50px', // 50px 전에 미리 로드
         }
       );
 
@@ -147,7 +150,13 @@
 
 <style>
   img {
-    transition: opacity 0.3s ease, filter 0.3s ease;
+    transition:
+      opacity 0.3s ease,
+      filter 0.3s ease;
+    object-fit: cover;
+    object-position: center;
+    overflow: hidden;
+    box-sizing: border-box;
   }
 
   img.loading {
@@ -159,14 +168,14 @@
     opacity: 0.5;
     filter: grayscale(100%);
   }
-  
+
   /* 접근성 개선 */
   @media (prefers-reduced-motion: reduce) {
     img {
       transition: opacity 0.1s ease;
     }
   }
-  
+
   /* 고해상도 디스플레이 최적화 */
   @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
     img {

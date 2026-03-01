@@ -43,7 +43,7 @@ async function safeInvoke<T = any>(command: string, args?: Record<string, any>):
   }
 
   const loadingId = `api-${command}-${Date.now()}`;
-  
+
   try {
     // 로딩 시작
     loadingManager.start(loadingId, `${command} 실행 중...`, {
@@ -53,7 +53,7 @@ async function safeInvoke<T = any>(command: string, args?: Record<string, any>):
 
     log.debug(`Invoking command: ${command}`, args);
     const result = await invoke<T>(command, args);
-    
+
     log.debug(`Command '${command}' completed successfully`);
     return result;
   } catch (e) {
@@ -62,7 +62,7 @@ async function safeInvoke<T = any>(command: string, args?: Record<string, any>):
       command,
       e
     );
-    
+
     // 전역 에러 핸들러에 보고
     globalErrorHandler.handleError(error, {
       component: 'API',
@@ -70,7 +70,7 @@ async function safeInvoke<T = any>(command: string, args?: Record<string, any>):
       args,
       isTauri
     });
-    
+
     throw error;
   } finally {
     // 로딩 완료
@@ -164,14 +164,14 @@ export const api: API = {
       const error = createAPIError('Manual login not available in browser mode', 'manual_login');
       throw error;
     }
-    
+
     if (!nidAut || !nidSes) {
       const error = createAPIError('NID_AUT and NID_SES are required', 'manual_login');
       throw error;
     }
-    
+
     const loadingId = 'manual-login';
-    
+
     try {
       loadingManager.start(loadingId, '로그인 중...', {
         category: 'auth',
@@ -197,7 +197,7 @@ export const api: API = {
     }
 
     const loadingId = 'file-selection';
-    
+
     try {
       loadingManager.start(loadingId, '파일 선택 대화상자 열기...', {
         category: 'file',
@@ -208,13 +208,13 @@ export const api: API = {
         multiple: false,
         filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg'] }],
       });
-      
+
       if (selected) {
         log.info('Audio file selected:', selected);
       } else {
         log.debug('No audio file selected');
       }
-      
+
       return selected as string | null;
     } catch (e) {
       const error = createAPIError(
@@ -235,7 +235,7 @@ export const api: API = {
       log.warn('convertFileSrc called with empty path');
       return path;
     }
-    
+
     try {
       const converted = convertFileSrc(path);
       log.debug('File path converted:', path, '->', converted);
@@ -320,9 +320,9 @@ export const api: API = {
   ): Promise<() => void> => {
     if (!isTauri) {
       log.warn(`Event listening for '${event}' not available in browser mode`);
-      return Promise.resolve(() => {});
+      return Promise.resolve(() => { });
     }
-    
+
     try {
       log.debug(`Setting up event listener for: ${event}`);
       return listen(event, (eventData) => {
@@ -334,10 +334,10 @@ export const api: API = {
             'listen',
             e
           );
-          globalErrorHandler.handleError(error, { 
-            component: 'API', 
-            event, 
-            eventData: eventData.payload 
+          globalErrorHandler.handleError(error, {
+            component: 'API',
+            event,
+            eventData: eventData.payload
           });
         }
       });
@@ -348,7 +348,7 @@ export const api: API = {
         e
       );
       globalErrorHandler.handleError(error, { component: 'API', event });
-      return Promise.resolve(() => {});
+      return Promise.resolve(() => { });
     }
   },
 
@@ -375,7 +375,7 @@ export const api: API = {
     }
 
     const loadingId = 'update-check';
-    
+
     try {
       loadingManager.start(loadingId, '업데이트 확인 중...', {
         category: 'api',
@@ -388,8 +388,8 @@ export const api: API = {
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       log.error('Update check failed:', errorMessage);
-      return { 
-        has_update: false, 
+      return {
+        has_update: false,
         error: errorMessage
       };
     } finally {
@@ -402,13 +402,13 @@ export const api: API = {
       const error = createAPIError('URL is required for opening download page', 'openDownloadPage');
       throw error;
     }
-    
+
     if (!isTauri) {
       log.info('Opening download page in browser:', url);
       window.open(url, '_blank');
       return;
     }
-    
+
     try {
       await safeInvoke('open_download_page', { url });
       log.info('Download page opened:', url);
@@ -424,14 +424,14 @@ export const api: API = {
       const error = createAPIError('Update download not available in browser mode', 'downloadUpdate');
       throw error;
     }
-    
+
     if (!url) {
       const error = createAPIError('URL is required for downloading update', 'downloadUpdate');
       throw error;
     }
-    
+
     const loadingId = 'update-download';
-    
+
     try {
       loadingManager.start(loadingId, '업데이트 다운로드 중...', {
         category: 'api',
@@ -453,22 +453,23 @@ export const api: API = {
   onUpdateProgress: (callback: UpdateProgressCallback): Promise<() => void> => {
     if (!isTauri) {
       log.warn('Update progress monitoring not available in browser mode');
-      return Promise.resolve(() => {});
+      return Promise.resolve(() => { });
     }
-    
+
     return api.listen('update-progress', (event) => {
       try {
-        callback(event);
+        // event.payload를 콜백에 전달
+        callback(event.payload);
       } catch (e) {
         const error = createAPIError(
           `Update progress callback error: ${e instanceof Error ? e.message : String(e)}`,
           'onUpdateProgress',
           e
         );
-        globalErrorHandler.handleError(error, { 
-          component: 'API', 
+        globalErrorHandler.handleError(error, {
+          component: 'API',
           event: 'update-progress',
-          payload: event.payload 
+          payload: event.payload
         });
       }
     });

@@ -160,9 +160,16 @@
         status.innerHTML = `✅ Fazzk 서버 발견!<br>포트 ${port}에서 연결 중...`;
         portInfo.innerHTML = `발견된 포트: <span class="current-port">${port}</span>`;
         
+        // OBS 모드 설정
+        window.OBS_MODE = true;
+        window.DIRECT_NOTIFIER_MODE = true;
+        
+        // 캐시 무효화를 위한 타임스탬프 추가
+        const timestamp = Date.now();
+        
         // 1.5초 후 리다이렉트
         setTimeout(() => {
-            window.location.href = `http://localhost:${port}/follower`;
+            window.location.href = `http://localhost:${port}/follower?_t=${timestamp}&obs=1`;
         }, 1500);
     }
     

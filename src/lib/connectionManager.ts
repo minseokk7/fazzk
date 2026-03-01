@@ -241,19 +241,31 @@ export class ConnectionManager {
     
     log.info(`Scheduling reconnect attempt ${this.state.reconnectAttempts}/${this.state.maxReconnectAttempts} in ${delay}ms`);
 
-    // 로딩 표시
-    const loadingId = `reconnect-${this.state.reconnectAttempts}`;
-    loadingManager.start(loadingId, `재연결 시도 중... (${this.state.reconnectAttempts}/${this.state.maxReconnectAttempts})`, {
-      category: 'websocket',
-      priority: 'high',
-      cancellable: true,
-      onCancel: () => this.cancelReconnect()
-    });
+    // OBS 모드가 아닐 때만 로딩 표시
+    const isOBSMode = !!(
+      (window as any).OBS_MODE ||
+      (window as any).DIRECT_NOTIFIER_MODE ||
+      document.body?.classList.contains('obs-mode')
+    );
+
+    let loadingId = null;
+    if (!isOBSMode) {
+      // 로딩 표시
+      loadingId = `reconnect-${this.state.reconnectAttempts}`;
+      loadingManager.start(loadingId, `재연결 시도 중... (${this.state.reconnectAttempts}/${this.state.maxReconnectAttempts})`, {
+        category: 'websocket',
+        priority: 'high',
+        cancellable: true,
+        onCancel: () => this.cancelReconnect()
+      });
+    }
 
     this.notifyListeners();
 
     this.reconnectTimer = setTimeout(() => {
-      loadingManager.finish(loadingId);
+      if (loadingId) {
+        loadingManager.finish(loadingId);
+      }
       this.executeReconnect();
     }, delay);
   }

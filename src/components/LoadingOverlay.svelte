@@ -73,11 +73,11 @@
           <div class="progress-bar">
             <div 
               class="progress-fill"
-              style="width: {progressValue}%"
+              style="width: {isNaN(progressValue) ? 0 : progressValue}%"
             ></div>
           </div>
           <div class="progress-text">
-            {Math.round(progressValue)}%
+            {Math.round(isNaN(progressValue) ? 0 : progressValue)}%
           </div>
         </div>
       {/if}

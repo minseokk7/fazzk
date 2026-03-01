@@ -4,7 +4,7 @@
   import { push } from 'svelte-spa-router';
   import { WSClient } from '../lib/websocket.ts';
   import { SettingsManager } from '../lib/settingsManager.ts';
-  
+
   // Component imports
   import SessionBanner from '../components/SessionBanner.svelte';
   import NotificationArea from '../components/NotificationArea.svelte';
@@ -14,9 +14,10 @@
   import KeyboardHelpModal from '../components/KeyboardHelpModal.svelte';
   import MemoryIndicator from '../components/MemoryIndicator.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
-  
+
   // Toast system
   import { toastManager } from '../lib/toastManager.ts';
+  import { loadingManager } from '../lib/loadingManager.ts';
 
   // State
   let baseUrl = 'http://localhost:3000';
@@ -26,14 +27,14 @@
   let queue = [];
   let knownFollowers = new Set();
   let isProcessing = false;
-  let audio; // Ref
+  let audio; // Ref for notification sound
+  let ttsAudio; // Ref for TTS audio
   let isFetching = false;
   let isInitialized = false;
   let appStartedAt = Date.now();
 
-  // 루블리스 중복 방지를 위한 추적
-  let rublisLastSeen = null;
-  let rublisCurrentlyFollowing = false;
+  // 테스트 유저 추적
+  let testNickname = $state(''); // 설정에서 동기화 (기본값 없음)
 
   // UI State
   let showSettings = $state(false);
@@ -108,13 +109,16 @@
   // 네트워크 에러 처리
   function handleNetworkError(error, context = '') {
     console.error(`[Network Error] ${context}:`, error);
-    
+
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       toastManager.error('네트워크 오류', '인터넷 연결을 확인해주세요.');
     } else if (error.message.includes('401') || error.message.includes('403')) {
       toastManager.error('인증 오류', '로그인이 만료되었습니다. 다시 로그인해주세요.', true);
     } else if (error.message.includes('timeout')) {
-      toastManager.warning('서버 지연', '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.');
+      toastManager.warning(
+        '서버 지연',
+        '서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+      );
     } else {
       toastManager.error('연결 오류', `${context} 중 오류가 발생했습니다.`);
     }
@@ -130,7 +134,7 @@
         const oldLength = history.length;
         history = history.slice(0, HISTORY_MAX_SIZE);
         console.log(`[History] Cleaned up: ${oldLength} -> ${history.length} items`);
-        
+
         // 즉시 저장
         saveHistoryToStorage();
       }
@@ -159,11 +163,11 @@
     if (historyCleanupIntervalId) {
       clearInterval(historyCleanupIntervalId);
     }
-    
+
     historyCleanupIntervalId = setInterval(() => {
       cleanupHistory();
     }, HISTORY_CLEANUP_INTERVAL);
-    
+
     console.log('[History] Cleanup scheduler started');
   }
 
@@ -223,7 +227,7 @@
   // Initialize
   // 동적 사용자 경로 생성
   let userPath = $state('');
-  
+
   onMount(async () => {
     // 사용자 경로 동적 생성
     if (api.isTauri) {
@@ -233,9 +237,11 @@
       } catch (error) {
         console.error('Failed to get app directory:', error);
         // 폴백: 현재 사용자 이름 추정
-        const username = navigator.userAgent.includes('Windows') ? 
-          (window.location.pathname.includes('/Users/') ? 
-            window.location.pathname.split('/Users/')[1]?.split('/')[0] || 'USER' : 'USER') : 'USER';
+        const username = navigator.userAgent.includes('Windows')
+          ? window.location.pathname.includes('/Users/')
+            ? window.location.pathname.split('/Users/')[1]?.split('/')[0] || 'USER'
+            : 'USER'
+          : 'USER';
         userPath = `file:///C:/Users/${username}/Desktop/Development/fazzk-dev/scripts/obs-redirector.html`;
       }
     } else {
@@ -255,10 +261,10 @@
       window.OBS_MODE ||
       window.DIRECT_NOTIFIER_MODE ||
       (!api.isTauri &&
-        (window.location.pathname === '/follower' || 
-         window.location.pathname.endsWith('/follower') ||
-         window.location.hash === '#/notifier' ||
-         window.location.hash === '#/follower'));
+        (window.location.pathname === '/follower' ||
+          window.location.pathname.endsWith('/follower') ||
+          window.location.hash === '#/notifier' ||
+          window.location.hash === '#/follower'));
 
     console.log('[초기화] OBS 모드 감지 결과:', isOBSMode);
     console.log('[초기화] 현재 URL:', window.location.href);
@@ -271,6 +277,14 @@
       console.log('[초기화] OBS 모드 감지됨 - OBS 기능 활성화');
       document.body.classList.add('obs-mode');
       document.body.classList.remove('app-mode');
+
+      // OBS 모드에서 기존 로딩 상태들 모두 정리
+      try {
+        loadingManager.clearAllForOBSMode();
+        console.log('[초기화] OBS 모드 - 기존 로딩 상태 정리 완료');
+      } catch (error) {
+        console.error('[초기화] 로딩 상태 정리 실패:', error);
+      }
 
       // OBS 모드에서는 기본 포트 사용
       baseUrl = window.location.origin;
@@ -286,19 +300,19 @@
         console.log('[알림기] 서버 포트 가져오는 중...');
         const port = await api.getServerPort();
         console.log('[알림기] 서버에서 반환된 포트:', port, typeof port);
-        
+
         baseUrl = `http://localhost:${port}`;
         obsUrl = `http://localhost:${port}/follower`;
         console.log('[알림기] 동적 포트 사용 (Tauri):', port);
         console.log('[알림기] 기본 URL 설정:', baseUrl);
         console.log('[알림기] OBS URL 설정:', obsUrl);
-        
+
         // 포트 확인을 위한 테스트 요청
         try {
           console.log('[알림기] 포트 테스트 요청 시작:', `${baseUrl}/settings`);
           const testResponse = await fetch(`${baseUrl}/settings`);
           console.log('[알림기] 포트 테스트 응답:', testResponse.status, testResponse.statusText);
-          
+
           if (testResponse.ok) {
             const testData = await testResponse.json();
             console.log('[알림기] 포트 테스트 성공, 데이터:', testData);
@@ -321,7 +335,7 @@
           console.log('[Event] Login Success', event.payload);
           clearErrorStates();
         });
-        
+
         console.log('[Event] Manual login listeners registered');
       } catch (eventError) {
         console.error('[Notifier] Failed to setup event listeners:', eventError);
@@ -349,7 +363,7 @@
     try {
       loadHistory();
       console.log('[init] History loaded successfully');
-      
+
       // 히스토리 정리 스케줄러 시작
       startHistoryCleanup();
     } catch (historyError) {
@@ -451,7 +465,7 @@
       { id: testAlarmTimeoutId, name: 'Test alarm timeout' },
       { id: displayTimeoutId, name: 'Display timeout' },
       { id: queueProcessTimeoutId, name: 'Queue process timeout' },
-      { id: historyCleanupIntervalId, name: 'History cleanup interval' }
+      { id: historyCleanupIntervalId, name: 'History cleanup interval' },
     ];
 
     timersToClean.forEach(({ id, name }) => {
@@ -497,10 +511,22 @@
       console.log('[Cleanup] Audio element cleared');
     }
 
+    // Clear TTS audio element
+    if (ttsAudio) {
+      ttsAudio.pause();
+      if (ttsAudio.src && ttsAudio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(ttsAudio.src);
+      }
+      ttsAudio.src = '';
+      ttsAudio.load();
+      ttsAudio = null;
+      console.log('[Cleanup] TTS audio element cleared');
+    }
+
     // Clear queues and state
     queue.length = 0;
     knownFollowers.clear();
-    
+
     // Clear any pending test alarm flags
     if (window.testAlarmInProgress) {
       window.testAlarmInProgress = false;
@@ -524,9 +550,11 @@
       settingsManager = new SettingsManager(baseUrl);
 
       // 설정 변경 리스너 등록
-      settingsManager.addListener((event) => {
-        console.log(`[Settings] Setting changed: ${event.key} = ${event.newValue} (source: ${event.source})`);
-        
+      settingsManager.addListener(event => {
+        console.log(
+          `[Settings] Setting changed: ${event.key} = ${event.newValue} (source: ${event.source})`
+        );
+
         // 반응형 변수 업데이트
         switch (event.key) {
           case 'volume':
@@ -592,7 +620,7 @@
       return true;
     } catch (error) {
       console.error('[Settings] Failed to initialize settings manager:', error);
-      
+
       // 폴백: 기존 방식으로 설정 로드
       console.log('[Settings] Falling back to legacy settings loading...');
       await loadSettingsLegacy();
@@ -732,10 +760,11 @@
         notificationLayout,
         textColor,
         textSize,
+        testNickname,
       };
 
       const success = settingsManager.setMultiple(settingsToSave, 'user');
-      
+
       if (success) {
         console.log('[Settings] Settings saved successfully via centralized manager');
         applyStyles();
@@ -766,6 +795,7 @@
       notificationLayout,
       textColor,
       textSize,
+      testNickname,
     };
 
     console.log('[Settings] Saving settings (legacy mode):', settingsToSave);
@@ -1067,20 +1097,28 @@
       if (settingsManager) {
         // 중앙화된 설정 관리자 사용
         console.log('[WebSocket] Using centralized settings manager for update');
-        
+
         // URL 파라미터가 있는 설정은 제외하고 업데이트
         const params = new URLSearchParams(window.location.search);
         const filteredSettings = {};
-        
+
         Object.entries(settings).forEach(([key, value]) => {
           // URL 파라미터로 오버라이드된 설정은 건너뛰기
-          const paramName = key === 'notificationLayout' ? 'notificationLayout' : 
-                           key === 'animationType' ? 'animationType' :
-                           key === 'displayDuration' ? 'displayDuration' :
-                           key === 'textColor' ? 'textColor' :
-                           key === 'textSize' ? 'textSize' :
-                           key === 'volume' ? 'volume' : key;
-          
+          const paramName =
+            key === 'notificationLayout'
+              ? 'notificationLayout'
+              : key === 'animationType'
+                ? 'animationType'
+                : key === 'displayDuration'
+                  ? 'displayDuration'
+                  : key === 'textColor'
+                    ? 'textColor'
+                    : key === 'textSize'
+                      ? 'textSize'
+                      : key === 'volume'
+                        ? 'volume'
+                        : key;
+
           if (!params.has(paramName)) {
             filteredSettings[key] = value;
           } else {
@@ -1093,7 +1131,9 @@
           if (success) {
             console.log('[WebSocket] Settings updated successfully via centralized manager');
           } else {
-            console.warn('[WebSocket] Failed to update settings via centralized manager, falling back');
+            console.warn(
+              '[WebSocket] Failed to update settings via centralized manager, falling back'
+            );
             handleSettingsUpdateFromWSLegacy(settings);
           }
         } else {
@@ -1187,38 +1227,37 @@
         const followers = data.content?.data || [];
 
         let registeredCount = 0;
-        // 현재 모든 팔로워를 기존으로 등록 (루블리스 제외)
+        // 현재 모든 팔로워를 기존으로 등록 (테스트 유저 제외)
         followers.forEach(f => {
-          // 루블리스는 known followers에 추가하지 않음 (항상 새 팔로워로 처리하기 위해)
-          if (f.user.nickname !== '루블리스') {
+          // 테스트 닉네임과 일치하는 유저는 known followers에 추가하지 않음 (항상 새 팔로워로 처리)
+          if (testNickname && f.user.nickname === testNickname) {
+            console.log(
+              `[Init] ${testNickname} excluded from known followers - will always show notifications`
+            );
+          } else {
             knownFollowers.add(f.user.userIdHash);
             registeredCount++;
-          } else {
-            console.log(
-              '[Init] 루블리스 excluded from known followers - will always show notifications'
-            );
-            console.log(`[Init] 루블리스 hash: ${f.user.userIdHash}`);
           }
         });
 
         // 로컬 스토리지에 저장
         saveKnownFollowers();
 
-        console.log(`[Init] Registered ${registeredCount} existing followers (루블리스 excluded)`);
+        console.log(`[Init] Registered ${registeredCount} existing followers`);
         console.log(
           `[Init] Total followers found: ${followers.length}, Known followers: ${registeredCount}`
         );
         console.log('[Init] Only NEW followers after this point will trigger notifications');
-        console.log('[Init] 루블리스 will ALWAYS trigger notifications');
+        if (testNickname) {
+          console.log(`[Init] Test user "${testNickname}" will ALWAYS trigger notifications`);
+        }
 
         // OBS 모드인지 확인
         const isOBSMode = !api.isTauri;
         if (isOBSMode) {
-          console.log('[Init] OBS mode detected - 루블리스 will be processed via polling');
+          console.log('[Init] OBS mode detected - notifications via polling');
         } else {
-          console.log(
-            '[Init] Tauri mode detected - 루블리스 will be processed via WebSocket and polling'
-          );
+          console.log('[Init] Tauri mode detected - notifications via WebSocket and polling');
         }
       }
     } catch (e) {
@@ -1248,7 +1287,7 @@
       console.log('[Polling] Poll cancelled - WebSocket connected, using server monitoring');
       return;
     }
-    
+
     // 폴링이 비활성화된 경우에도 중단
     if (!pollingEnabled) {
       console.log('[Polling] Poll cancelled - polling disabled');
@@ -1256,7 +1295,7 @@
     }
 
     console.log('[Polling] Executing poll (WebSocket fallback mode)');
-    
+
     await fetchFollowers();
     scheduleNextPoll();
   }
@@ -1286,7 +1325,7 @@
 
     try {
       const res = await fetch(`${baseUrl}/followers?_t=${now}`);
-      
+
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           handleSessionError();
@@ -1341,24 +1380,26 @@
         newFollowers.forEach(f => {
           let isOldFollower = false;
 
-          // 루블리스는 항상 새 팔로워로 처리 (테스트용) - known followers 체크 완전 건너뛰기
-          const isTestFollower = f.user.nickname === '루블리스';
+          // 설정의 테스트 닉네임과 일치하면 항상 새 팔로워로 처리 (known followers 체크 완전 건너뛰기)
+          const isTestFollower = testNickname && f.user.nickname === testNickname;
 
           if (isTestFollower) {
-            // 루블리스는 무조건 새 팔로워로 처리 (팔로우 해제 후 재팔로우 시에도 알림)
-            console.log(`[Fetch] ⭐ Test follower (루블리스) detected - ALWAYS show notification!`);
-            console.log(`[Fetch] 루블리스 data:`, f);
+            // 테스트 유저는 무조건 새 팔로워로 처리 (팔로우 해제 후 재팔로우 시에도 알림)
+            console.log(
+              `[Fetch] ⭐ Test follower (${testNickname}) detected - ALWAYS show notification!`
+            );
+            console.log(`[Fetch] ${testNickname} data:`, f);
             isOldFollower = false;
-            // 루블리스는 known followers에 추가하지 않음 (항상 새 팔로워로 처리하기 위해)
+            // 테스트 유저는 known followers에 추가하지 않음 (항상 새 팔로워로 처리하기 위해)
 
             // 중복 확인 후 바로 큐에 추가
             if (!queue.some(q => q.user.userIdHash === f.user.userIdHash)) {
               validNewFollowers.push(f);
-              console.log(`[Fetch] ✅ 루블리스 added to valid new followers`);
+              console.log(`[Fetch] ✅ ${testNickname} added to valid new followers`);
             } else {
-              console.log(`[Fetch] ⚠️ 루블리스 already in queue, skipping`);
+              console.log(`[Fetch] ⚠️ ${testNickname} already in queue, skipping`);
             }
-            return; // 루블리스는 여기서 처리 완료
+            return; // 테스트 유저는 여기서 처리 완료
           } else if (f.user.userIdHash.startsWith('test_')) {
             // 서버에서 생성된 테스트 팔로워 처리 (모든 모드에서 처리)
             console.log(`[Fetch] Processing server test follower: ${f.user.nickname}`);
@@ -1374,7 +1415,7 @@
             }
           }
 
-          // Add to known followers (except test followers and 루블리스)
+          // Add to known followers (except test followers and 테스트 유저)
           if (!f.user.userIdHash.startsWith('test_') && !isTestFollower) {
             knownFollowers.add(f.user.userIdHash);
           }
@@ -1463,12 +1504,12 @@
         console.log(
           `[Reconnect] Scheduling next attempt in 3 seconds (${reconnectAttempts}/${maxReconnectAttempts})`
         );
-        
+
         // Clear existing timeout before setting new one
         if (reconnectTimeoutId) {
           clearTimeout(reconnectTimeoutId);
         }
-        
+
         reconnectTimeoutId = setTimeout(() => {
           reconnectTimeoutId = null;
           attemptReconnect();
@@ -1553,12 +1594,12 @@
 
         // Even if notification fails, continue processing queue
         currentItem = null;
-        
+
         // Clear existing timeout
         if (queueProcessTimeoutId) {
           clearTimeout(queueProcessTimeoutId);
         }
-        
+
         queueProcessTimeoutId = setTimeout(() => {
           isProcessing = false;
           queueProcessTimeoutId = null;
@@ -1591,27 +1632,620 @@
   }
 
   function speak(text) {
-    if ('speechSynthesis' in window) {
-      try {
-        const u = new SpeechSynthesisUtterance(`${text}님이 팔로우했습니다.`);
-        u.lang = 'ko-KR';
-        u.volume = volume;
+    console.log('[TTS] Attempting to speak:', text, 'enableTTS:', enableTTS);
 
-        u.onerror = event => {
-          console.error('[TTS] Speech synthesis failed:', event.error);
-          // Continue with audio notification as fallback
-          console.log('[TTS] Falling back to audio notification');
+    if (!enableTTS) {
+      console.log('[TTS] TTS is disabled');
+      return;
+    }
+
+    if (!('speechSynthesis' in window)) {
+      console.warn('[TTS] Speech synthesis not supported in this browser');
+      return;
+    }
+
+    try {
+      const synth = window.speechSynthesis;
+
+      // 기존 발화 중단
+      if (synth.speaking) {
+        console.log('[TTS] Cancelling previous speech');
+        synth.cancel();
+      }
+
+      // OBS에서 TTS 작동을 위한 특별 처리
+      const isOBSMode = !!(
+        window.OBS_MODE ||
+        window.DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      );
+
+      if (isOBSMode) {
+        console.log('[TTS] OBS mode detected - applying OBS-specific TTS fixes');
+
+        // OBS에서 TTS 활성화를 위한 여러 시도
+        enableTTSInOBS()
+          .then(() => {
+            performTTS(text, synth);
+          })
+          .catch(() => {
+            console.warn('[TTS] OBS TTS enablement failed, trying direct approach');
+            performTTS(text, synth);
+          });
+      } else {
+        // 일반 브라우저에서는 바로 실행
+        performTTS(text, synth);
+      }
+    } catch (ttsError) {
+      console.error('[TTS] Failed to initialize speech synthesis:', ttsError);
+    }
+  }
+
+  // HTML Audio 요소를 사용한 TTS (OBS 호환)
+  async function speakWithAudio(text) {
+    try {
+      console.log('[TTS-Audio] Starting TTS generation for:', text);
+      console.log('[TTS-Audio] Base URL:', baseUrl);
+
+      // 서버에 TTS 요청
+      const ttsUrl = `${baseUrl}/tts`;
+      console.log('[TTS-Audio] Making request to:', ttsUrl);
+
+      const response = await fetch(ttsUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: `${text}님이 팔로우했습니다.`,
+        }),
+      });
+
+      console.log('[TTS-Audio] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[TTS-Audio] API error response:', errorText);
+        throw new Error(`TTS API failed: ${response.status} - ${errorText}`);
+      }
+
+      // 오디오 데이터를 Blob으로 받기
+      const audioBlob = await response.blob();
+      console.log(
+        '[TTS-Audio] Audio blob received, size:',
+        audioBlob.size,
+        'type:',
+        audioBlob.type
+      );
+
+      if (audioBlob.size === 0) {
+        throw new Error('Received empty audio blob');
+      }
+
+      const audioUrl = URL.createObjectURL(audioBlob);
+      console.log('[TTS-Audio] Audio URL created:', audioUrl);
+
+      // 알림음 재생 후 TTS 재생 (오디오 컨텍스트 활성화)
+      await playTTSWithAudioContext(audioUrl, text);
+    } catch (error) {
+      console.error('[TTS-Audio] Failed to generate/play TTS:', error);
+      console.error('[TTS-Audio] Error stack:', error.stack);
+
+      // 폴백: 기존 Speech Synthesis API 시도
+      console.log('[TTS-Audio] Falling back to Speech Synthesis API');
+      speakWithSynthesis(text);
+    }
+  }
+
+  // 오디오 컨텍스트를 활용한 TTS 재생
+  async function playTTSWithAudioContext(audioUrl, text) {
+    try {
+      // 방법 1: 알림음과 함께 재생 (오디오 컨텍스트 공유)
+      if (audio && audio.src) {
+        console.log('[TTS-Audio] Using notification audio context');
+
+        // 알림음을 매우 낮은 볼륨으로 재생 (오디오 컨텍스트 활성화)
+        const originalVolume = audio.volume;
+        audio.volume = 0.01; // 거의 들리지 않게
+
+        try {
+          await audio.play();
+          console.log('[TTS-Audio] Notification audio played for context activation');
+
+          // 즉시 정지
+          audio.pause();
+          audio.currentTime = 0;
+          audio.volume = originalVolume;
+
+          // 이제 TTS 재생
+          await playTTSAudio(audioUrl, text);
+        } catch (e) {
+          console.warn('[TTS-Audio] Notification audio failed, trying direct TTS');
+          audio.volume = originalVolume;
+          await playTTSAudio(audioUrl, text);
+        }
+      } else {
+        // 알림음이 없으면 직접 재생
+        await playTTSAudio(audioUrl, text);
+      }
+    } catch (error) {
+      console.error('[TTS-Audio] Audio context method failed:', error);
+      URL.revokeObjectURL(audioUrl);
+      throw error;
+    }
+  }
+
+  // 실제 TTS 오디오 재생
+  async function playTTSAudio(audioUrl, text) {
+    return new Promise((resolve, reject) => {
+      // TTS 전용 audio 요소가 없으면 생성
+      if (!ttsAudio) {
+        ttsAudio = document.createElement('audio');
+        ttsAudio.preload = 'auto';
+        console.log('[TTS-Audio] TTS audio element created');
+      }
+
+      // 이전 URL 정리
+      if (ttsAudio.src && ttsAudio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(ttsAudio.src);
+        console.log('[TTS-Audio] Previous blob URL revoked');
+      }
+
+      // 새 오디오 설정
+      ttsAudio.src = audioUrl;
+      ttsAudio.volume = Math.max(0.1, Math.min(1.0, volume));
+      console.log('[TTS-Audio] Audio configured, volume:', ttsAudio.volume);
+
+      // 재생 이벤트 핸들러
+      ttsAudio.onloadeddata = () => {
+        console.log('[TTS-Audio] ✅ Audio loaded successfully, duration:', ttsAudio.duration);
+      };
+
+      ttsAudio.onplay = () => {
+        console.log('[TTS-Audio] ✅ TTS playback started for:', text);
+      };
+
+      ttsAudio.onended = () => {
+        console.log('[TTS-Audio] ✅ TTS playback completed for:', text);
+        URL.revokeObjectURL(audioUrl);
+        resolve();
+      };
+
+      ttsAudio.onerror = e => {
+        console.error('[TTS-Audio] ❌ TTS playback failed:', e);
+        console.error('[TTS-Audio] Audio error details:', ttsAudio.error);
+        URL.revokeObjectURL(audioUrl);
+        reject(new Error(`TTS playback failed: ${ttsAudio.error?.message || 'Unknown error'}`));
+      };
+
+      // 재생 시작
+      console.log('[TTS-Audio] Attempting to play TTS audio...');
+      ttsAudio
+        .play()
+        .then(() => {
+          console.log('[TTS-Audio] 🎤 TTS audio playback initiated successfully');
+        })
+        .catch(playError => {
+          console.error('[TTS-Audio] Play promise rejected:', playError);
+
+          // 사용자 상호작용 시뮬레이션 후 재시도
+          console.log('[TTS-Audio] Trying user interaction simulation...');
+          simulateUserInteraction()
+            .then(() => {
+              return ttsAudio.play();
+            })
+            .then(() => {
+              console.log(
+                '[TTS-Audio] 🎤 TTS audio playback succeeded after interaction simulation'
+              );
+            })
+            .catch(finalError => {
+              console.error('[TTS-Audio] Final play attempt failed:', finalError);
+              reject(finalError);
+            });
+        });
+    });
+  }
+
+  // 사용자 상호작용 시뮬레이션
+  async function simulateUserInteraction() {
+    return new Promise(resolve => {
+      console.log('[TTS-Audio] Simulating user interaction...');
+
+      // 다양한 이벤트 시뮬레이션
+      const events = ['click', 'touchstart', 'keydown', 'mousedown', 'pointerdown'];
+      events.forEach(eventType => {
+        const event = new Event(eventType, {
+          bubbles: true,
+          cancelable: true,
+          isTrusted: false, // 명시적으로 false로 설정
+        });
+        document.dispatchEvent(event);
+        document.body?.dispatchEvent(event);
+      });
+
+      // 실제 DOM 요소 클릭 시뮬레이션
+      const hiddenButton = document.createElement('button');
+      hiddenButton.style.position = 'absolute';
+      hiddenButton.style.left = '-9999px';
+      hiddenButton.style.opacity = '0';
+      hiddenButton.style.pointerEvents = 'none';
+      document.body.appendChild(hiddenButton);
+
+      // 실제 클릭
+      hiddenButton.click();
+      hiddenButton.focus();
+
+      // 정리
+      setTimeout(() => {
+        document.body.removeChild(hiddenButton);
+        resolve();
+      }, 100);
+    });
+  }
+
+  // 기존 Speech Synthesis API (폴백용)
+  function speakWithSynthesis(text) {
+    if (!('speechSynthesis' in window)) {
+      console.warn('[TTS] Speech synthesis not supported in this browser');
+      return;
+    }
+
+    try {
+      const synth = window.speechSynthesis;
+
+      // 기존 발화 중단
+      if (synth.speaking) {
+        console.log('[TTS] Cancelling previous speech');
+        synth.cancel();
+      }
+
+      // OBS에서 TTS 작동을 위한 특별 처리
+      const isOBSMode = !!(
+        window.OBS_MODE ||
+        window.DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      );
+
+      if (isOBSMode) {
+        console.log('[TTS] OBS mode detected - applying OBS-specific TTS fixes');
+
+        // OBS에서 TTS 활성화를 위한 여러 시도
+        enableTTSInOBS()
+          .then(() => {
+            performTTS(text, synth);
+          })
+          .catch(() => {
+            console.warn('[TTS] OBS TTS enablement failed, trying direct approach');
+            performTTS(text, synth);
+          });
+      } else {
+        // 일반 브라우저에서는 바로 실행
+        performTTS(text, synth);
+      }
+    } catch (ttsError) {
+      console.error('[TTS] Failed to initialize speech synthesis:', ttsError);
+    }
+  }
+
+  // OBS에서 TTS 활성화를 위한 특별 처리
+  async function enableTTSInOBS() {
+    console.log('[TTS-OBS] Attempting to enable TTS in OBS...');
+
+    return new Promise((resolve, reject) => {
+      try {
+        // 방법 1: 사용자 제스처 시뮬레이션 (더 강화된 버전)
+        const events = ['click', 'touchstart', 'keydown', 'mousedown', 'pointerdown'];
+        events.forEach(eventType => {
+          const event = new Event(eventType, {
+            bubbles: true,
+            cancelable: true,
+            isTrusted: true, // 신뢰할 수 있는 이벤트로 표시
+          });
+          document.dispatchEvent(event);
+          document.body?.dispatchEvent(event);
+          window.dispatchEvent(event);
+        });
+
+        // 방법 2: 실제 DOM 요소 클릭 시뮬레이션
+        const hiddenButton = document.createElement('button');
+        hiddenButton.style.position = 'absolute';
+        hiddenButton.style.left = '-9999px';
+        hiddenButton.style.opacity = '0';
+        hiddenButton.style.pointerEvents = 'none';
+        document.body.appendChild(hiddenButton);
+
+        // 실제 클릭 이벤트 발생
+        hiddenButton.click();
+        hiddenButton.focus();
+
+        // 정리
+        setTimeout(() => {
+          document.body.removeChild(hiddenButton);
+        }, 100);
+
+        // 방법 3: 오디오 컨텍스트 활성화 (Web Audio API)
+        if (window.AudioContext || window.webkitAudioContext) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          const audioContext = new AudioContextClass();
+
+          console.log('[TTS-OBS] Audio context state:', audioContext.state);
+
+          if (audioContext.state === 'suspended') {
+            audioContext
+              .resume()
+              .then(() => {
+                console.log('[TTS-OBS] Audio context resumed successfully');
+
+                // 방법 4: 무음 오디오 재생으로 오디오 시스템 활성화
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.01);
+
+                console.log('[TTS-OBS] Silent audio played to activate system');
+                resolve();
+              })
+              .catch(reject);
+          } else {
+            console.log('[TTS-OBS] Audio context already running');
+            resolve();
+          }
+        } else {
+          console.log('[TTS-OBS] No AudioContext available');
+          resolve();
+        }
+
+        // 방법 5: Speech Synthesis 강제 초기화
+        if ('speechSynthesis' in window) {
+          const synth = window.speechSynthesis;
+
+          // 기존 발화 모두 취소
+          synth.cancel();
+
+          // 음성 목록 강제 로드
+          const voices = synth.getVoices();
+          console.log('[TTS-OBS] Available voices after force load:', voices.length);
+
+          if (voices.length === 0) {
+            // 음성 목록이 비어있으면 강제로 로드 시도
+            synth.addEventListener(
+              'voiceschanged',
+              () => {
+                const newVoices = synth.getVoices();
+                console.log('[TTS-OBS] Voices loaded after event:', newVoices.length);
+              },
+              { once: true }
+            );
+
+            // 더미 발화로 음성 엔진 활성화
+            const dummyUtterance = new SpeechSynthesisUtterance('');
+            dummyUtterance.volume = 0;
+            dummyUtterance.rate = 10; // 매우 빠르게
+            synth.speak(dummyUtterance);
+          }
+        }
+      } catch (e) {
+        console.error('[TTS-OBS] Failed to enable TTS:', e);
+        reject(e);
+      }
+    });
+  }
+
+  // 실제 TTS 수행
+  function performTTS(text, synth) {
+    try {
+      const voices = synth.getVoices();
+      console.log('[TTS] Available voices:', voices.length);
+
+      // OBS 모드 감지
+      const isOBSMode = !!(
+        window.OBS_MODE ||
+        window.DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      );
+
+      const utterance = new SpeechSynthesisUtterance(`${text}님이 팔로우했습니다.`);
+
+      // 한국어 음성 우선 선택
+      const koreanVoice = voices.find(
+        voice => voice.lang.includes('ko') || voice.lang.includes('KR')
+      );
+
+      if (koreanVoice) {
+        utterance.voice = koreanVoice;
+        console.log('[TTS] Using Korean voice:', koreanVoice.name);
+      } else {
+        console.log('[TTS] No Korean voice found, using default');
+      }
+
+      // TTS 설정 (OBS에서 더 안정적인 설정 사용)
+      utterance.lang = 'ko-KR';
+      utterance.volume = isOBSMode ? 1.0 : Math.max(0.1, Math.min(1.0, volume)); // OBS에서는 최대 볼륨
+      utterance.rate = isOBSMode ? 0.8 : 0.9; // OBS에서는 조금 더 느리게
+      utterance.pitch = 1.0;
+
+      // OBS 전용 추가 설정
+      if (isOBSMode) {
+        console.log('[TTS] Applying OBS-specific settings');
+
+        // OBS에서 더 안정적인 재생을 위한 설정
+        utterance.onstart = () => {
+          console.log('[TTS-OBS] ✅ Speech started successfully for:', text);
+
+          // OBS에서 TTS가 시작되면 추가 안정화 작업
+          try {
+            // 다른 오디오 소스와의 충돌 방지
+            if (audio && !audio.paused) {
+              const originalVolume = audio.volume;
+              audio.volume = 0.1; // 알림음 볼륨 일시적으로 낮춤
+
+              // TTS 완료 후 원래 볼륨으로 복원
+              utterance.addEventListener(
+                'end',
+                () => {
+                  setTimeout(() => {
+                    audio.volume = originalVolume;
+                  }, 500);
+                },
+                { once: true }
+              );
+            }
+          } catch (e) {
+            console.warn('[TTS-OBS] Audio conflict prevention failed:', e);
+          }
         };
 
-        window.speechSynthesis.speak(u);
-        console.log('[TTS] Speech synthesis started for:', text);
-      } catch (ttsError) {
-        console.error('[TTS] Failed to create speech synthesis:', ttsError);
-        // Continue with audio notification as fallback
-        console.log('[TTS] Falling back to audio notification');
+        utterance.onend = () => {
+          console.log('[TTS-OBS] ✅ Speech completed for:', text);
+        };
+
+        utterance.onerror = event => {
+          console.error('[TTS-OBS] ❌ Speech synthesis failed:', event.error);
+
+          // OBS 전용 에러 처리 및 재시도 로직
+          switch (event.error) {
+            case 'not-allowed':
+              console.error('[TTS-OBS] Permission denied - trying alternative approach');
+
+              // 대안 1: 다른 음성으로 재시도
+              setTimeout(() => {
+                const alternativeVoice = voices.find(v => v !== koreanVoice);
+                if (alternativeVoice) {
+                  console.log('[TTS-OBS] Retrying with alternative voice:', alternativeVoice.name);
+                  const retryUtterance = new SpeechSynthesisUtterance(
+                    `${text}님이 팔로우했습니다.`
+                  );
+                  retryUtterance.voice = alternativeVoice;
+                  retryUtterance.volume = 1.0;
+                  retryUtterance.rate = 0.8;
+                  synth.speak(retryUtterance);
+                }
+              }, 1000);
+              break;
+
+            case 'network':
+              console.error('[TTS-OBS] Network error - retrying with offline voice');
+              setTimeout(() => {
+                const offlineVoice = voices.find(v => !v.voiceURI.includes('http'));
+                if (offlineVoice) {
+                  const retryUtterance = new SpeechSynthesisUtterance(
+                    `${text}님이 팔로우했습니다.`
+                  );
+                  retryUtterance.voice = offlineVoice;
+                  synth.speak(retryUtterance);
+                }
+              }, 1000);
+              break;
+
+            case 'synthesis-failed':
+              console.error('[TTS-OBS] Synthesis failed - trying simpler text');
+              setTimeout(() => {
+                const simpleUtterance = new SpeechSynthesisUtterance(`${text}`);
+                simpleUtterance.volume = 1.0;
+                synth.speak(simpleUtterance);
+              }, 1000);
+              break;
+
+            case 'audio-busy':
+              console.error('[TTS-OBS] Audio system busy - waiting and retrying...');
+              setTimeout(() => {
+                synth.cancel(); // 모든 대기 중인 발화 취소
+                setTimeout(() => performTTS(text, synth), 2000);
+              }, 1000);
+              break;
+
+            default:
+              console.error('[TTS-OBS] Unknown error, trying basic retry:', event.error);
+              setTimeout(() => {
+                const basicUtterance = new SpeechSynthesisUtterance(text);
+                synth.speak(basicUtterance);
+              }, 2000);
+          }
+        };
+      } else {
+        // 일반 브라우저용 이벤트 핸들러
+        utterance.onstart = () => {
+          console.log('[TTS] ✅ Speech started successfully for:', text);
+        };
+
+        utterance.onend = () => {
+          console.log('[TTS] ✅ Speech completed for:', text);
+        };
+
+        utterance.onerror = event => {
+          console.error('[TTS] ❌ Speech synthesis failed:', event.error);
+
+          // 일반적인 에러 처리
+          switch (event.error) {
+            case 'audio-busy':
+              console.error('[TTS] Audio system busy - retrying...');
+              setTimeout(() => performTTS(text, synth), 1000);
+              break;
+            default:
+              console.error('[TTS] Error:', event.error);
+          }
+        };
       }
-    } else {
-      console.warn('[TTS] Speech synthesis not supported in this browser');
+
+      // TTS 실행
+      console.log('[TTS] 🎤 Starting speech synthesis for:', text);
+      synth.speak(utterance);
+
+      // 실행 확인 (OBS에서 더 긴 대기 시간)
+      const checkDelay = isOBSMode ? 500 : 200;
+      setTimeout(() => {
+        if (synth.speaking) {
+          console.log('[TTS] ✅ Speech is active');
+        } else if (synth.pending) {
+          console.log('[TTS] ⏳ Speech is pending');
+        } else {
+          console.warn('[TTS] ⚠️ Speech may have failed silently');
+
+          // 재시도 (OBS에서 더 적극적인 재시도)
+          if (isOBSMode) {
+            console.log('[TTS-OBS] 🔄 Aggressive retry for OBS...');
+
+            // 모든 발화 취소 후 재시도
+            synth.cancel();
+
+            setTimeout(() => {
+              // 더 간단한 텍스트로 재시도
+              const simpleUtterance = new SpeechSynthesisUtterance(text);
+              simpleUtterance.volume = 1.0;
+              simpleUtterance.rate = 1.0;
+              synth.speak(simpleUtterance);
+
+              console.log('[TTS-OBS] Simple retry attempted');
+            }, 1000);
+          } else {
+            console.log('[TTS] 🔄 Standard retry...');
+            setTimeout(() => {
+              synth.speak(utterance);
+            }, 500);
+          }
+        }
+      }, checkDelay);
+    } catch (error) {
+      console.error('[TTS] Failed to perform TTS:', error);
+
+      // 최후의 수단: 매우 기본적인 TTS 시도
+      if (window.speechSynthesis) {
+        try {
+          const emergencyUtterance = new SpeechSynthesisUtterance(text);
+          window.speechSynthesis.speak(emergencyUtterance);
+          console.log('[TTS] Emergency TTS attempted');
+        } catch (emergencyError) {
+          console.error('[TTS] Emergency TTS also failed:', emergencyError);
+        }
+      }
     }
   }
 
@@ -1653,7 +2287,9 @@
 
           // If we had to truncate, save the truncated version back
           if (parsedHistory.length > HISTORY_MAX_SIZE) {
-            console.log(`[History] Truncated from ${parsedHistory.length} to ${HISTORY_MAX_SIZE} items`);
+            console.log(
+              `[History] Truncated from ${parsedHistory.length} to ${HISTORY_MAX_SIZE} items`
+            );
             saveHistoryToStorage();
           }
         } else {
@@ -1748,7 +2384,7 @@
       }
     } else {
       console.log('[TestAlarm] WebSocket not available, using fallback methods');
-      
+
       // 직접 생성 방식에서는 토스트 없이 바로 알림 표시 (중복 방지)
       // 실제 팔로워 알림이 표시되므로 별도 토스트 불필요
 
@@ -1818,9 +2454,9 @@
   function copyOBSUrl() {
     const url = `http://localhost:${baseUrl.split(':')[2]}/follower`;
     navigator.clipboard.writeText(url);
-    
+
     showUserSuccess('URL 복사 완료', 'OBS URL이 클립보드에 복사되었습니다.', {
-      message: `현재 포트: ${baseUrl.split(':')[2]}\nOBS URL: ${url}\n\n💡 팁: 포트가 변경되면 이 URL도 업데이트됩니다.`
+      message: `현재 포트: ${baseUrl.split(':')[2]}\nOBS URL: ${url}\n\n💡 팁: 포트가 변경되면 이 URL도 업데이트됩니다.`,
     });
   }
 
@@ -1828,9 +2464,9 @@
     // 동적으로 생성된 경로 사용
     const pathToCopy = userPath || 'scripts/obs-redirector.html';
     navigator.clipboard.writeText(pathToCopy);
-    
+
     showUserSuccess('경로 복사 완료', '리다이렉터 파일 경로가 클립보드에 복사되었습니다.', {
-      message: `리다이렉터 파일 경로: ${pathToCopy}\n\n사용법:\n1. OBS Studio에서 브라우저 소스 추가\n2. 이 경로를 URL에 붙여넣기\n3. 자동으로 Fazzk에 연결됩니다\n\n장점:\n- 포트가 변경되어도 자동으로 연결\n- 연결 상태 시각적 표시\n- OBS에서 URL 변경 불필요`
+      message: `리다이렉터 파일 경로: ${pathToCopy}\n\n사용법:\n1. OBS Studio에서 브라우저 소스 추가\n2. 이 경로를 URL에 붙여넣기\n3. 자동으로 Fazzk에 연결됩니다\n\n장점:\n- 포트가 변경되어도 자동으로 연결\n- 연결 상태 시각적 표시\n- OBS에서 URL 변경 불필요`,
     });
   }
 
@@ -1845,7 +2481,7 @@
   // 메모리 정리 함수
   function triggerMemoryCleanup() {
     console.log('[MemoryCleanup] Manual cleanup triggered via keyboard shortcut');
-    
+
     try {
       // 1. 메모리 모니터의 정리 기능 호출
       import('../lib/memoryMonitor.ts').then(({ memoryMonitor }) => {
@@ -1858,9 +2494,8 @@
       // 3. 사용자에게 통합된 피드백 제공
       console.log('[MemoryCleanup] 메모리 정리가 완료되었습니다');
       showUserSuccess('메모리 정리 완료', '메모리 정리가 완료되었습니다.', {
-        message: `정리 결과:\n• 이미지 캐시: ${cleanupResult.cleanedImages}개\n• 히스토리 항목: ${cleanupResult.cleanedHistory}개\n• 브라우저 캐시 정리 완료`
+        message: `정리 결과:\n• 이미지 캐시: ${cleanupResult.cleanedImages}개\n• 히스토리 항목: ${cleanupResult.cleanedHistory}개\n• 브라우저 캐시 정리 완료`,
       });
-
     } catch (error) {
       console.error('[MemoryCleanup] Error during cleanup:', error);
       showUserError('메모리 정리 중 오류가 발생했습니다.');
@@ -1901,7 +2536,7 @@
 
       return {
         cleanedImages,
-        cleanedHistory
+        cleanedHistory,
       };
 
       // 4. 큐 정리
@@ -1913,7 +2548,6 @@
         - Images cleaned: ${cleanedImages}
         - History items: ${originalHistoryLength} → ${history.length}
         - Queue items: ${queue.length}`);
-
     } catch (error) {
       console.error('[MemoryCleanup] Error during app cleanup:', error);
     }
@@ -1937,7 +2571,7 @@
         ctrlKey: event.ctrlKey,
         altKey: event.altKey,
         shiftKey: event.shiftKey,
-        target: event.target.tagName
+        target: event.target.tagName,
       });
 
       // Ctrl+T: 테스트 알림
@@ -2009,7 +2643,7 @@
     // 여러 곳에 이벤트 리스너 등록 (Tauri 환경에서 더 안정적)
     document.addEventListener('keydown', keyboardEventHandler, true); // capture phase
     window.addEventListener('keydown', keyboardEventHandler, true); // window level
-    
+
     // 추가적으로 body에도 등록
     if (document.body) {
       document.body.addEventListener('keydown', keyboardEventHandler, true);
@@ -2021,7 +2655,7 @@
         document.body.focus();
       }
     };
-    
+
     document.addEventListener('click', ensureFocus);
     window.addEventListener('focus', ensureFocus);
 
@@ -2032,7 +2666,7 @@
     console.log('  - Ctrl+M: 메모리 모니터 열기/닫기');
     console.log('  - Ctrl+Shift+M: 메모리 정리 실행');
     console.log('  - Escape: 모달 닫기');
-    
+
     // 초기 포커스 설정
     setTimeout(() => {
       if (document.body) {
@@ -2050,19 +2684,19 @@
       console.log('[SettingsSync] Using WebSocket-based settings sync');
       return; // WebSocket 이벤트로 실시간 동기화됨
     }
-    
+
     // WebSocket이 없는 경우에만 폴링 사용
     console.log('[SettingsSync] WebSocket not available, using polling fallback');
-    
+
     // 중앙화된 설정 관리자가 있으면 사용
     if (settingsManager) {
       console.log('[SettingsSync] Using centralized settings manager for sync');
-      
+
       // 30초마다 서버에서 설정 다시 로드
       if (settingsSyncIntervalId) {
         clearInterval(settingsSyncIntervalId);
       }
-      
+
       settingsSyncIntervalId = setInterval(async () => {
         try {
           console.log('[SettingsSync] Syncing settings from server...');
@@ -2071,11 +2705,11 @@
           console.error('[SettingsSync] Failed to sync settings from server:', error);
         }
       }, 30000);
-      
+
       console.log('[SettingsSync] Centralized settings sync started (30s interval)');
       return;
     }
-    
+
     // 폴백: 기존 폴링 방식
     console.log('[SettingsSync] Using legacy polling sync');
     startSettingsSyncLegacy();
@@ -2153,6 +2787,15 @@
               }
             });
 
+            // 테스트 닉네임 동기화
+            if (
+              serverSettings.testNickname !== undefined &&
+              serverSettings.testNickname !== testNickname
+            ) {
+              testNickname = serverSettings.testNickname;
+              console.log('[SettingsSync] Updated testNickname:', testNickname);
+            }
+
             // 스타일 재적용 (설정이 변경된 경우만)
             if (settingsChanged) {
               applyStyles();
@@ -2193,7 +2836,7 @@
   <audio bind:this={audio} id="notificationSound" preload="auto"></audio>
 
   <!-- Session Banner Component -->
-  <SessionBanner 
+  <SessionBanner
     {sessionError}
     {wsConnected}
     {wsReconnecting}
@@ -2205,122 +2848,132 @@
   />
 
   <!-- Notification Area Component -->
-  <NotificationArea 
-    {currentItem}
-    {animationType}
-    {notificationLayout}
-    {textColor}
-  />
+  <NotificationArea {currentItem} {animationType} {notificationLayout} {textColor} />
 
   <!-- Bottom Navigation Component -->
-  <BottomNavigation 
-    bind:showHistory
-    bind:showSettings
-    {testAlarm}
-  />
+  <BottomNavigation bind:showHistory bind:showSettings {testAlarm} />
 
   <!-- Toast Container -->
   <ToastContainer position="top-right" maxToasts={3} />
 
   <!-- Settings Modal Component -->
   {#if showSettings}
-    <div class="modal-overlay" 
-         tabindex="0"
-         onclick={() => (showSettings = false)}
-         onkeydown={(e) => {
-           if (e.key === 'Enter' || e.key === ' ') {
-             e.preventDefault();
-             showSettings = false;
-           }
-         }}
-         role="dialog"
-         aria-modal="true"
-         aria-labelledby="settings-modal-title"
+    <div
+      class="modal-overlay"
+      tabindex="0"
+      onclick={() => (showSettings = false)}
+      onkeydown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          showSettings = false;
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
     >
-      <div class="settings-modal" 
-           tabindex="0"
-           onclick={(e) => e.stopPropagation()} 
-           onkeydown={(e) => {
-             if (e.key === 'Escape') {
-               e.preventDefault();
-               showSettings = false;
-             }
-           }}
-           style="width: 400px !important; max-width: 90vw !important;"
-           role="dialog"
-           aria-labelledby="settings-modal-title"
+      <div
+        class="settings-modal"
+        tabindex="0"
+        onclick={e => e.stopPropagation()}
+        onkeydown={e => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            showSettings = false;
+          }
+        }}
+        style="width: 400px !important; max-width: 90vw !important;"
+        role="dialog"
+        aria-labelledby="settings-modal-title"
       >
         <div class="modal-header">
           <h2 id="settings-modal-title">설정</h2>
           <div class="header-buttons">
-            <button class="help-btn" 
-                    onclick={() => (showKeyboardHelp = !showKeyboardHelp)} 
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        showKeyboardHelp = !showKeyboardHelp;
-                      }
-                    }}
-                    title="키보드 단축키"
-                    aria-label="키보드 단축키 도움말 열기"
+            <button
+              class="help-btn"
+              onclick={() => (showKeyboardHelp = !showKeyboardHelp)}
+              onkeydown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  showKeyboardHelp = !showKeyboardHelp;
+                }
+              }}
+              title="키보드 단축키"
+              aria-label="키보드 단축키 도움말 열기"
             >
               ❓
             </button>
-            <button class="close-btn" 
-                    onclick={() => (showSettings = false)}
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        showSettings = false;
-                      }
-                    }}
-                    aria-label="설정 창 닫기"
-            >×</button>
+            <button
+              class="close-btn"
+              onclick={() => (showSettings = false)}
+              onkeydown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  showSettings = false;
+                }
+              }}
+              aria-label="설정 창 닫기">×</button
+            >
           </div>
         </div>
-        
+
         <div class="modal-body">
           <div class="form-group">
             <label for="volume">알림 볼륨 ({Math.round(volume * 100)}%)</label>
             <input id="volume" type="range" min="0" max="1" step="0.1" bind:value={volume} />
           </div>
-          
+
           <div class="form-group">
             <label for="polling">갱신 주기 ({pollingInterval}초)</label>
-            <input id="polling" type="range" min="5" max="60" step="1" bind:value={pollingInterval} />
+            <input
+              id="polling"
+              type="range"
+              min="5"
+              max="60"
+              step="1"
+              bind:value={pollingInterval}
+            />
           </div>
-          
+
           <div class="form-group">
             <label for="duration">알림 표시 시간 ({displayDuration}초)</label>
-            <input id="duration" type="range" min="1" max="30" step="1" bind:value={displayDuration} />
+            <input
+              id="duration"
+              type="range"
+              min="1"
+              max="30"
+              step="1"
+              bind:value={displayDuration}
+            />
           </div>
-          
+
           <div class="form-group">
             <label class="toggle-switch">
               <input type="checkbox" bind:checked={enableTTS} />
               <span>TTS 음성 안내 켜기</span>
             </label>
           </div>
-          
+
           <div class="form-group">
             <label for="sound">알림음 설정</label>
             <div class="file-select-group">
-              <button class="btn btn-secondary" 
-                      onclick={selectSoundFile}
-                      onkeydown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          selectSoundFile();
-                        }
-                      }}
-                      aria-label="알림음 파일 선택"
-              >파일 선택</button>
+              <button
+                class="btn btn-secondary"
+                onclick={selectSoundFile}
+                onkeydown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectSoundFile();
+                  }
+                }}
+                aria-label="알림음 파일 선택">파일 선택</button
+              >
               <div class="file-path-display">
                 {customSoundPath ? customSoundPath.split('\\').pop() : '기본 알림음'}
               </div>
             </div>
           </div>
-          
+
           <div class="form-group">
             <label for="layout">알림 레이아웃</label>
             <select id="layout" class="form-control" bind:value={notificationLayout}>
@@ -2328,7 +2981,7 @@
               <option value="horizontal">가로형 (넓은 직사각형)</option>
             </select>
           </div>
-          
+
           <div class="form-group">
             <label for="animation">등장 효과</label>
             <select id="animation" class="form-control" bind:value={animationType}>
@@ -2349,36 +3002,52 @@
             <input id="textSize" type="range" min="50" max="200" step="10" bind:value={textSize} />
           </div>
 
+          <div class="form-group">
+            <label for="testNicknameInput">🧪 테스트 팔로워 닉네임</label>
+            <input
+              id="testNicknameInput"
+              type="text"
+              class="form-control"
+              bind:value={testNickname}
+              placeholder="테스트할 실제 유저 닉네임 입력"
+            />
+            <p style="font-size: 0.75rem; opacity: 0.6; margin-top: 4px;">
+              이 닉네임의 유저는 팔로우/언팔 시마다 항상 알림이 뜹니다
+            </p>
+          </div>
+
           <div style="margin-top:20px; text-align:right;">
-            <button class="btn btn-secondary" 
-                    onclick={saveSettings}
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        saveSettings();
-                      }
-                    }}
-                    aria-label="설정 저장"
-            >저장</button>
+            <button
+              class="btn btn-secondary"
+              onclick={saveSettings}
+              onkeydown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  saveSettings();
+                }
+              }}
+              aria-label="설정 저장">저장</button
+            >
           </div>
 
           <div class="obs-section">
             <p><strong>🔧 OBS 설정</strong></p>
-            
+
             <div class="obs-method">
               <p class="method-title">방법 1: 직접 URL (현재 포트)</p>
               <div class="url-display">
                 <code>{obsUrl}</code>
-                <button class="copy-btn" 
-                        onclick={copyOBSUrl}
-                        onkeydown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            copyOBSUrl();
-                          }
-                        }}
-                        aria-label="OBS URL 복사"
-                >복사</button>
+                <button
+                  class="copy-btn"
+                  onclick={copyOBSUrl}
+                  onkeydown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      copyOBSUrl();
+                    }
+                  }}
+                  aria-label="OBS URL 복사">복사</button
+                >
               </div>
               <p class="method-note">⚠️ 포트 변경 시 OBS에서 URL을 다시 설정해야 합니다</p>
             </div>
@@ -2387,16 +3056,17 @@
               <p class="method-title">방법 2: 리다이렉터 파일 (권장)</p>
               <div class="url-display">
                 <code>{userPath || 'scripts/obs-redirector.html'}</code>
-                <button class="copy-btn" 
-                        onclick={copyRedirectorPath}
-                        onkeydown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            copyRedirectorPath();
-                          }
-                        }}
-                        aria-label="리다이렉터 파일 경로 복사"
-                >복사</button>
+                <button
+                  class="copy-btn"
+                  onclick={copyRedirectorPath}
+                  onkeydown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      copyRedirectorPath();
+                    }
+                  }}
+                  aria-label="리다이렉터 파일 경로 복사">복사</button
+                >
               </div>
               <p class="method-note">✅ 포트 변경 시에도 자동으로 연결됩니다</p>
             </div>
@@ -2412,46 +3082,49 @@
 
   <!-- History Modal Component -->
   {#if showHistory}
-    <div class="modal-overlay" 
-         tabindex="0"
-         onclick={() => (showHistory = false)}
-         onkeydown={(e) => {
-           if (e.key === 'Enter' || e.key === ' ') {
-             e.preventDefault();
-             showHistory = false;
-           }
-         }}
-         role="dialog"
-         aria-modal="true"
-         aria-labelledby="history-modal-title"
+    <div
+      class="modal-overlay"
+      tabindex="0"
+      onclick={() => (showHistory = false)}
+      onkeydown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          showHistory = false;
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="history-modal-title"
     >
-      <div class="history-modal" 
-           tabindex="0"
-           onclick={(e) => e.stopPropagation()} 
-           onkeydown={(e) => {
-             if (e.key === 'Escape') {
-               e.preventDefault();
-               showHistory = false;
-             }
-           }}
-           style="width: 370px !important; max-width: 90vw !important;"
-           role="dialog"
-           aria-labelledby="history-modal-title"
+      <div
+        class="history-modal"
+        tabindex="0"
+        onclick={e => e.stopPropagation()}
+        onkeydown={e => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            showHistory = false;
+          }
+        }}
+        style="width: 370px !important; max-width: 90vw !important;"
+        role="dialog"
+        aria-labelledby="history-modal-title"
       >
         <div class="modal-header">
           <h2 id="history-modal-title">알림 기록</h2>
-          <button class="close-btn" 
-                  onclick={() => (showHistory = false)}
-                  onkeydown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      showHistory = false;
-                    }
-                  }}
-                  aria-label="기록 창 닫기"
-          >×</button>
+          <button
+            class="close-btn"
+            onclick={() => (showHistory = false)}
+            onkeydown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                showHistory = false;
+              }
+            }}
+            aria-label="기록 창 닫기">×</button
+          >
         </div>
-        
+
         <div class="modal-body">
           {#if history.length === 0}
             <p class="empty-message">기록이 없습니다.</p>
@@ -2459,7 +3132,11 @@
             <div class="history-scroll-area">
               {#each history as item (item._id)}
                 <div class="history-item">
-                  <img src={item.user?.profileImageUrl || '/default_profile.png'} alt="Profile" class="profile-img" />
+                  <img
+                    src={item.user?.profileImageUrl || '/default_profile.png'}
+                    alt="Profile"
+                    class="profile-img"
+                  />
                   <div class="info">
                     <div class="nickname">{item.user?.nickname}</div>
                     <div class="time">{formatTime(item.followingSince || item.notifiedAt)}</div>
@@ -2467,18 +3144,19 @@
                 </div>
               {/each}
             </div>
-            
+
             <div class="history-footer">
-              <button class="btn btn-secondary" 
-                      onclick={clearHistory}
-                      onkeydown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          clearHistory();
-                        }
-                      }}
-                      aria-label="알림 기록 모두 지우기"
-              >기록 지우기</button>
+              <button
+                class="btn btn-secondary"
+                onclick={clearHistory}
+                onkeydown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    clearHistory();
+                  }
+                }}
+                aria-label="알림 기록 모두 지우기">기록 지우기</button
+              >
             </div>
           {/if}
         </div>
@@ -2562,7 +3240,7 @@
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
     z-index: 2000 !important;
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     margin: 0 !important;
     padding: 0 !important;
     display: block !important;
@@ -2635,7 +3313,7 @@
     font-weight: 500 !important;
   }
 
-  .form-group input[type="range"] {
+  .form-group input[type='range'] {
     width: 100%;
     height: 6px;
     border-radius: 3px;
@@ -2831,5 +3509,4 @@
     position: sticky;
     bottom: 0;
   }
-
 </style>

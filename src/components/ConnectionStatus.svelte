@@ -593,4 +593,9 @@
       animation: none;
     }
   }
+
+  /* OBS 모드에서 연결 상태 숨김 */
+  :global(.obs-mode) .connection-status {
+    display: none !important;
+  }
 </style>

@@ -8,6 +8,36 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- 오디오 초기 지연을 방지하기 위한 웜업(Warm-up) 스크립트 (특히 OBS 환경에 유용) -->
+    <script>
+      (function() {
+        document.addEventListener('click', initAudioContext, { once: true });
+        document.addEventListener('touchstart', initAudioContext, { once: true });
+        
+        function initAudioContext() {
+          try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+              const ctx = new AudioContext();
+              // 아주 짧고 볼륨이 0인 무음 오디오를 재생하여 브라우저의 오디오 엔진을 활성화
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              gain.gain.value = 0;
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(0);
+              osc.stop(0.001);
+              console.log("[Audio Warm-up] AudioContext initialized and warmed up.");
+            }
+          } catch (e) {
+            console.error("[Audio Warm-up] Failed:", e);
+          }
+        }
+        
+        // OBS 등 클릭 이벤트가 없어도 오디오 허용(Auto-play policy)이 된 환경을 위해 문서 로드 직후 시도
+        setTimeout(initAudioContext, 500);
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

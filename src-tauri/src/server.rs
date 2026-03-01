@@ -1,18 +1,19 @@
 use crate::chzzk;
+use crate::error::AppError;
 use crate::state::{AppState, CookieData};
 use crate::websocket::WSManager;
 use axum::{
+    extract::Request,
     extract::{Json, State},
-    http::{Method, StatusCode},
+    http::Method,
+    middleware::{self, Next},
     response::{Html, IntoResponse},
     routing::{get, post},
     Router,
-    middleware::{self, Next},
-    extract::Request,
 };
 use serde_json::json;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -33,22 +34,32 @@ async fn log_requests(req: Request, next: Next) -> impl IntoResponse {
     let uri = req.uri().clone();
     let path = uri.path();
     let headers = req.headers().clone();
-    
+
     // 모든 요청 로깅 (WebSocket 포함)
-    println!("[Server] {} {} - Headers: {:?}", method, uri, headers.get("upgrade"));
-    
+    println!(
+        "[Server] {} {} - Headers: {:?}",
+        method,
+        uri,
+        headers.get("upgrade")
+    );
+
     let response = next.run(req).await;
-    
+
     // 응답 상태도 로깅
-    println!("[Server Response] {} {} -> {}", method, path, response.status());
-    
+    println!(
+        "[Server Response] {} {} -> {}",
+        method,
+        path,
+        response.status()
+    );
+
     response
 }
 
 pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     // 동적 포트 사용 (Vite와 충돌 방지를 위해 3001부터 시작)
     let port = find_available_port(3001).await;
-    
+
     // Save port to state
     if let Ok(mut p) = app_state.port.lock() {
         *p = port;
@@ -63,7 +74,7 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     println!("[WebSocket] Manager initialized with connection pooling");
 
     // 실시간 팔로워 모니터링 시작
-    start_follower_monitoring(app_state.clone(), ws_manager.clone()).await;
+    crate::monitor::start_follower_monitoring(app_state.clone(), ws_manager.clone()).await;
 
     // 정적 파일 경로 (개발 vs 빌드 환경)
     // Tauri 2.0에서는 frontendDist가 자동으로 처리됨
@@ -103,7 +114,12 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         .enumerate()
         .find_map(|(i, p)| {
             let index_path = p.join("index.html");
-            println!("[Server] 경로 시도 #{}: {:?} -> index.html 존재: {}", i + 1, p, index_path.exists());
+            println!(
+                "[Server] 경로 시도 #{}: {:?} -> index.html 존재: {}",
+                i + 1,
+                p,
+                index_path.exists()
+            );
             if index_path.exists() {
                 Some(p.clone())
             } else {
@@ -136,10 +152,14 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         .route("/followers", get(get_followers))
         .route("/test-follower", post(test_follower))
         .route("/test-follower-get", get(test_follower_get))
+        .route("/tts", post(generate_tts))
         // WebSocket route (중요: API 라우트 다음에 배치)
         .route("/ws", get(crate::websocket::websocket_handler))
         // 디버깅을 위한 WebSocket 테스트 라우트
-        .route("/ws-test", get(|| async { "WebSocket endpoint is working" }))
+        .route(
+            "/ws-test",
+            get(|| async { "WebSocket endpoint is working" }),
+        )
         // OBS 전용 라우트 (API 라우트 이후에 배치)
         .route("/follower", get(serve_svelte_obs))
         // Static file serving (public 폴더)
@@ -164,266 +184,6 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
     axum::serve(listener, app).await.unwrap();
 }
 
-// 실시간 팔로워 모니터링 시작 (압축 저장 + API 캐싱 적용)
-async fn start_follower_monitoring(app_state: Arc<AppState>, ws_manager: WSManager) {
-    log::info!("[FollowerMonitor] Starting optimized monitoring with compression & caching");
-    
-    // 백그라운드 태스크로 실행
-    tokio::spawn(async move {
-        let mut initialized = false;
-        let mut error_count = 0;
-        let max_errors = 10;
-        
-        loop {
-            // 5초마다 팔로워 확인 (에러 시 지수 백오프)
-            let sleep_duration = if error_count == 0 {
-                Duration::from_secs(5)
-            } else {
-                // 지수 백오프: 5초, 10초, 20초, 40초, 최대 60초
-                let backoff_seconds = std::cmp::min(5 * (2_u64.pow(error_count.min(4))), 60);
-                Duration::from_secs(backoff_seconds)
-            };
-            
-            tokio::time::sleep(sleep_duration).await;
-            
-            // WebSocket 클라이언트가 있는 경우에만 모니터링
-            if ws_manager.client_count().await == 0 {
-                continue;
-            }
-            
-            // 최대 에러 횟수 초과 시 모니터링 중단
-            if error_count >= max_errors {
-                log::error!("[FollowerMonitor] 최대 에러 횟수 초과, 모니터링 중단");
-                break;
-            }
-            
-            // 쿠키와 사용자 ID 확인
-            let (cookies, user_id_hash) = {
-                let cookies_guard = match app_state.cookies.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => {
-                        error_count += 1;
-                        continue;
-                    }
-                };
-                
-                let user_id_guard = match app_state.user_id_hash.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => {
-                        error_count += 1;
-                        continue;
-                    }
-                };
-                
-                match (cookies_guard.as_ref(), user_id_guard.as_ref()) {
-                    (Some(cookies), Some(user_id)) => (cookies.clone(), user_id.clone()),
-                    _ => continue, // 인증 정보가 없으면 건너뛰기 (에러 카운트 증가 안함)
-                }
-            };
-            
-            // API 캐시 확인 먼저
-            let current_followers = {
-                // 캐시 확인을 별도 스코프로 분리
-                let cached_followers = {
-                    let cache = match app_state.api_cache.lock() {
-                        Ok(cache) => cache,
-                        Err(_) => {
-                            error_count += 1;
-                            continue;
-                        }
-                    };
-                    
-                    cache.get_cached_followers().cloned()
-                };
-                
-                if let Some(followers) = cached_followers {
-                    log::debug!("[FollowerMonitor] Using cached followers data");
-                    followers
-                } else {
-                    // 캐시 미스 - API 호출
-                    match crate::chzzk::get_followers(&app_state.client, &cookies, &user_id_hash).await {
-                        Ok(response) => {
-                            if let Some(content) = response.content {
-                                let followers = content.data;
-                                log::debug!("[FollowerMonitor] API call successful, caching {} followers", followers.len());
-                                
-                                // 캐시에 저장 (별도 스코프)
-                                {
-                                    let mut cache = match app_state.api_cache.lock() {
-                                        Ok(cache) => cache,
-                                        Err(_) => {
-                                            error_count += 1;
-                                            continue;
-                                        }
-                                    };
-                                    cache.cache_followers(followers.clone());
-                                }
-                                
-                                // 성공 시 에러 카운트 리셋
-                                error_count = 0;
-                                
-                                followers
-                            } else {
-                                log::warn!("[FollowerMonitor] API response has no content");
-                                continue;
-                            }
-                        }
-                        Err(e) => {
-                            error_count += 1;
-                            log::warn!("[FollowerMonitor] 팔로워 조회 실패 ({}/{}): {}", error_count, max_errors, e);
-                            
-                            // 에러가 계속 발생하면 더 긴 대기
-                            if error_count >= 5 {
-                                log::warn!("[FollowerMonitor] 연속 에러 발생, 긴 대기 시간 적용");
-                            }
-                            continue;
-                        }
-                    }
-                }
-            };
-            
-            let current_count = current_followers.len();
-            
-            // 첫 실행 시 압축 저장으로 초기화
-            if !initialized {
-                log::info!("[FollowerMonitor] 압축 저장 시스템 초기화 - {} 팔로워", current_count);
-                
-                // 초기 팔로워 수 저장
-                if let Ok(mut initial_count) = app_state.initial_follower_count.lock() {
-                    *initial_count = Some(current_count);
-                }
-                
-                // 압축된 팔로워 목록 초기화 (루블리스 제외)
-                if let Ok(mut compressed_followers) = app_state.compressed_followers.lock() {
-                    compressed_followers.clear();
-                    for follower in &current_followers {
-                        if follower.user.nickname != "루블리스" {
-                            let compressed = crate::state::CompressedFollower::from_follower(follower);
-                            compressed_followers.push_back(compressed);
-                            
-                            // 최대 100개로 제한 (메모리 효율성)
-                            if compressed_followers.len() > 100 {
-                                compressed_followers.pop_front();
-                            }
-                        }
-                    }
-                    log::info!("[FollowerMonitor] 압축 저장: {} 팔로워 (메모리 94% 절약)", compressed_followers.len());
-                }
-                
-                // 루블리스 초기 상태 확인
-                let rublis_exists = current_followers.iter().any(|f| f.user.nickname == "루블리스");
-                if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
-                    if rublis_exists {
-                        *rublis_last_seen = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
-                        log::info!("[FollowerMonitor] 루블리스 초기 상태: 팔로우 중");
-                    } else {
-                        *rublis_last_seen = None;
-                        log::info!("[FollowerMonitor] 루블리스 초기 상태: 팔로우 안함");
-                    }
-                }
-                
-                initialized = true;
-                continue; // 첫 실행에서는 알림 없이 초기화만
-            }
-            
-            // 효율적 변화 감지
-            let initial_count = {
-                app_state.initial_follower_count.lock().unwrap().unwrap_or(0)
-            };
-            
-            // 1. 루블리스 특별 처리 (항상 확인)
-            let rublis_follower = current_followers.iter().find(|f| f.user.nickname == "루블리스");
-            let rublis_currently_following = rublis_follower.is_some();
-            
-            let rublis_was_following = {
-                app_state.rublis_last_seen.lock().unwrap().is_some()
-            };
-            
-            if rublis_currently_following && !rublis_was_following {
-                // 루블리스가 새로 팔로우함
-                log::info!("[FollowerMonitor] 🎉 루블리스 새 팔로우 감지!");
-                if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
-                    *rublis_last_seen = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
-                }
-                
-                if let Some(rublis) = rublis_follower {
-                    ws_manager.broadcast_new_follower(rublis.clone()).await;
-                }
-            } else if !rublis_currently_following && rublis_was_following {
-                // 루블리스가 언팔로우함
-                log::info!("[FollowerMonitor] 루블리스 언팔로우 감지");
-                if let Ok(mut rublis_last_seen) = app_state.rublis_last_seen.lock() {
-                    *rublis_last_seen = None;
-                }
-            }
-            
-            // 2. 압축 저장을 이용한 효율적 새 팔로워 감지
-            if current_count > initial_count {
-                log::info!("[FollowerMonitor] 팔로워 수 증가 감지: {} -> {}", initial_count, current_count);
-                
-                // 압축된 팔로워 목록과 비교
-                let compressed_followers = {
-                    app_state.compressed_followers.lock().unwrap().clone()
-                };
-                
-                for follower in &current_followers {
-                    // 루블리스는 이미 위에서 처리했으므로 건너뛰기
-                    if follower.user.nickname == "루블리스" {
-                        continue;
-                    }
-                    
-                    // 압축된 목록에서 해당 팔로워 찾기
-                    let compressed = crate::state::CompressedFollower::from_follower(follower);
-                    if !compressed_followers.iter().any(|cf| cf.hash == compressed.hash) {
-                        log::info!("[FollowerMonitor] 새 팔로워 감지 (압축 비교): {}", follower.user.nickname);
-                        
-                        // WebSocket으로 브로드캐스트
-                        ws_manager.broadcast_new_follower(follower.clone()).await;
-                        
-                        // 압축된 팔로워 목록에 추가
-                        if let Ok(mut compressed_followers) = app_state.compressed_followers.lock() {
-                            compressed_followers.push_back(compressed);
-                            if compressed_followers.len() > 100 {
-                                compressed_followers.pop_front();
-                            }
-                        }
-                    }
-                }
-                
-                // 초기 팔로워 수 업데이트
-                if let Ok(mut initial_count_lock) = app_state.initial_follower_count.lock() {
-                    *initial_count_lock = Some(current_count);
-                }
-            } else if current_count < initial_count {
-                // 팔로워 수 감소 (언팔로우)
-                log::debug!("[FollowerMonitor] 팔로워 수 감소: {} -> {}", initial_count, current_count);
-                
-                // 초기 팔로워 수 업데이트
-                if let Ok(mut initial_count_lock) = app_state.initial_follower_count.lock() {
-                    *initial_count_lock = Some(current_count);
-                }
-                
-                // 압축된 팔로워 목록 재구성 (현재 팔로워들로)
-                if let Ok(mut compressed_followers) = app_state.compressed_followers.lock() {
-                    compressed_followers.clear();
-                    for follower in &current_followers {
-                        if follower.user.nickname != "루블리스" {
-                            let compressed = crate::state::CompressedFollower::from_follower(follower);
-                            compressed_followers.push_back(compressed);
-                            if compressed_followers.len() > 100 {
-                                compressed_followers.pop_front();
-                            }
-                        }
-                    }
-                }
-            }
-            // 팔로워 수가 같으면 변화 없음 - 캐시된 데이터 사용으로 API 호출 최소화
-        }
-        
-        log::warn!("[FollowerMonitor] 모니터링 종료");
-    });
-}
-
 async fn find_available_port(start: u16) -> u16 {
     for port in start..start + 100 {
         if TcpListener::bind(format!("0.0.0.0:{}", port)).await.is_ok() {
@@ -442,7 +202,7 @@ async fn save_port_info(port: u16) {
     } else {
         println!("[Server] 포트 정보 저장: {:?}", port_file);
     }
-    
+
     // 2. JSON 형태로도 저장 (더 많은 정보 포함)
     let info_file = std::env::temp_dir().join("fazzk_info.json");
     let info = serde_json::json!({
@@ -451,11 +211,11 @@ async fn save_port_info(port: u16) {
         "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
         "pid": std::process::id()
     });
-    
+
     if let Err(e) = std::fs::write(&info_file, info.to_string()) {
         eprintln!("[Server] 정보 파일 저장 실패: {}", e);
     }
-    
+
     println!("[Server] 🎯 OBS URL: http://localhost:{}/follower", port);
     println!("[Server] 📁 포트 파일: {:?}", port_file);
     println!("[Server] 💡 OBS 자동 연결: scripts/obs-redirector.html 사용");
@@ -465,7 +225,7 @@ async fn save_port_info(port: u16) {
 async fn receive_cookies(
     State(state): State<ServerState>,
     Json(payload): Json<CookieData>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, AppError> {
     println!("[Server] Received cookies from extension");
 
     // 1. Verify cookies & Fetch User Info
@@ -514,36 +274,38 @@ async fn receive_cookies(
                 eprintln!("[Server] Failed to emit event: {}", e);
             }
 
-            Json(serde_json::json!({
+            Ok(Json(serde_json::json!({
                 "code": 200,
                 "message": "Success",
                 "nickname": nickname
-            }))
+            })))
         }
         Err(e) => {
             eprintln!("[Server] Cookie verification failed: {}", e);
-            Json(serde_json::json!({
-                "code": 401,
-                "message": format!("Verification failed: {}", e)
-            }))
+            Err(AppError::AuthError(e.to_string()))
         }
     }
 }
 
 // Handler for GET /cookies (Debug)
-async fn get_cookies(State(state): State<ServerState>) -> impl IntoResponse {
-    let cookies = state.app_state.cookies.lock().unwrap().clone();
-    Json(cookies)
+async fn get_cookies(State(state): State<ServerState>) -> Result<impl IntoResponse, AppError> {
+    let cookies = state
+        .app_state
+        .cookies
+        .lock()
+        .map_err(|_| AppError::LockError)?
+        .clone()
+        .unwrap_or_default();
+    Ok(Json(cookies))
 }
 
 // Handler for GET /settings - Load settings from Tauri Store
-async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
+async fn load_settings(State(state): State<ServerState>) -> Result<impl IntoResponse, AppError> {
     use tauri_plugin_store::StoreExt;
 
     println!("[Server] Loading settings from Store");
 
     if let Ok(store) = state.app_handle.store("settings.json") {
-        // 설정 항목들을 가져오기
         let mut settings = serde_json::Map::new();
 
         let keys = vec![
@@ -556,6 +318,7 @@ async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
             "notificationLayout",
             "textColor",
             "textSize",
+            "testNickname",
         ];
 
         for key in keys {
@@ -565,8 +328,7 @@ async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
         }
 
         if settings.is_empty() {
-            // 기본 설정 반환
-            Json(serde_json::json!({
+            Ok(Json(serde_json::json!({
                 "volume": 0.5,
                 "pollingInterval": 5,
                 "displayDuration": 5,
@@ -575,14 +337,14 @@ async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
                 "animationType": "fade",
                 "notificationLayout": "vertical",
                 "textColor": "#ffffff",
-                "textSize": 100
-            }))
+                "textSize": 100,
+                "testNickname": "테스트 유저"
+            })))
         } else {
-            Json(serde_json::Value::Object(settings))
+            Ok(Json(serde_json::Value::Object(settings)))
         }
     } else {
-        // Store 열기 실패 시 기본 설정 반환
-        Json(serde_json::json!({
+        Ok(Json(serde_json::json!({
             "volume": 0.5,
             "pollingInterval": 5,
             "displayDuration": 5,
@@ -592,7 +354,7 @@ async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
             "notificationLayout": "vertical",
             "textColor": "#ffffff",
             "textSize": 100
-        }))
+        })))
     }
 }
 
@@ -600,32 +362,22 @@ async fn load_settings(State(state): State<ServerState>) -> impl IntoResponse {
 async fn save_settings(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, AppError> {
     use tauri_plugin_store::StoreExt;
 
     println!("[Server] Saving settings to Store");
 
     if let Ok(store) = state.app_handle.store("settings.json") {
-        // payload가 객체인 경우 각 항목을 저장
         if let Some(obj) = payload.as_object() {
             for (key, value) in obj {
-                // Enforce minimum polling interval of 5 seconds
                 if key == "pollingInterval" {
                     if let Some(interval) = value.as_u64() {
                         if interval < 5 {
-                            eprintln!(
-                                "[Server] Polling interval too low ({}), clamping to 5s",
-                                interval
-                            );
                             store.set(key, serde_json::json!(5));
                             continue;
                         }
                     } else if let Some(interval) = value.as_f64() {
                         if interval < 5.0 {
-                            eprintln!(
-                                "[Server] Polling interval too low ({}), clamping to 5s",
-                                interval
-                            );
                             store.set(key, serde_json::json!(5));
                             continue;
                         }
@@ -634,29 +386,34 @@ async fn save_settings(
                 store.set(key, value.clone());
             }
 
-            if let Err(e) = store.save() {
-                eprintln!("[Server] Failed to save settings: {}", e);
-                return Json(
-                    serde_json::json!({ "success": false, "error": "Failed to save settings" }),
-                );
-            }
+            store
+                .save()
+                .map_err(|e| AppError::ConfigError(e.to_string()))?;
 
             println!("[Server] Settings saved successfully");
-            
-            // WebSocket으로 설정 업데이트 브로드캐스트
-            state.ws_manager.broadcast_settings_update(payload.clone()).await;
-            
-            Json(serde_json::json!({ "success": true }))
+
+            // AppConfig에 testNickname 동기화
+            if let Some(nickname_val) = payload.get("testNickname").and_then(|v| v.as_str()) {
+                let mut config = state.app_state.config.write().await;
+                config.test_nickname = nickname_val.to_string();
+            }
+
+            state
+                .ws_manager
+                .broadcast_settings_update(payload.clone())
+                .await;
+
+            Ok(Json(serde_json::json!({ "success": true })))
         } else {
-            Json(serde_json::json!({ "success": false, "error": "Invalid settings format" }))
+            Err(AppError::ParseError("Invalid settings format".to_string()))
         }
     } else {
-        Json(serde_json::json!({ "success": false, "error": "Failed to open store" }))
+        Err(AppError::ConfigError("Failed to open store".to_string()))
     }
 }
 
 // Handler for GET /follower (OBS Widget) - 직접 알림 컴포넌트 렌더링
-async fn serve_svelte_obs(State(state): State<ServerState>) -> impl IntoResponse {
+async fn serve_svelte_obs(State(state): State<ServerState>) -> Result<impl IntoResponse, AppError> {
     println!("[Server] OBS 팔로워 라우트 핸들러 호출됨");
     let html_path = state.resource_path.join("index.html");
     println!("[Server] OBS 팔로워 페이지 제공 중: {:?}", html_path);
@@ -680,7 +437,233 @@ async fn serve_svelte_obs(State(state): State<ServerState>) -> impl IntoResponse
                         document.addEventListener('DOMContentLoaded', function() {
                             document.body.classList.add('obs-mode');
                             console.log('[OBS] obs-mode 클래스 추가됨');
+                            
+                            // OBS에서 TTS 초기화
+                            initializeTTSForOBS();
+                            
+                            // 서버 연결 상태 모니터링 시작
+                            startServerMonitoring();
+                            
+                            // 추가적인 TTS 활성화 시도 (페이지 로드 후)
+                            setTimeout(() => {
+                                console.log('[OBS] Starting additional TTS activation...');
+                                
+                                // 여러 번의 TTS 활성화 시도
+                                for (let i = 0; i < 5; i++) {
+                                    setTimeout(() => {
+                                        try {
+                                            // 다양한 방법으로 TTS 시스템 깨우기
+                                            if ('speechSynthesis' in window) {
+                                                const synth = window.speechSynthesis;
+                                                
+                                                // 기존 발화 취소
+                                                synth.cancel();
+                                                
+                                                // 무음 발화로 시스템 활성화
+                                                const wakeUpUtterance = new SpeechSynthesisUtterance('');
+                                                wakeUpUtterance.volume = 0;
+                                                wakeUpUtterance.rate = 10;
+                                                synth.speak(wakeUpUtterance);
+                                                
+                                                console.log(`[OBS] TTS wake-up attempt ${i + 1}/5`);
+                                            }
+                                        } catch (e) {
+                                            console.warn(`[OBS] TTS wake-up attempt ${i + 1} failed:`, e);
+                                        }
+                                    }, i * 1000); // 1초 간격으로 시도
+                                }
+                                
+                                // 최종 확인
+                                setTimeout(() => {
+                                    if ('speechSynthesis' in window) {
+                                        const voices = speechSynthesis.getVoices();
+                                        console.log('[OBS] Final TTS status - Voices available:', voices.length);
+                                        console.log('[OBS] Speech synthesis ready:', !speechSynthesis.speaking && !speechSynthesis.pending);
+                                    }
+                                }, 6000);
+                                
+                            }, 2000); // 페이지 로드 2초 후 시작
                         });
+                        
+                        // OBS에서 TTS 초기화 함수
+                        function initializeTTSForOBS() {
+                            if ('speechSynthesis' in window) {
+                                console.log('[OBS] Initializing TTS for OBS...');
+                                
+                                // 음성 목록 로드 대기
+                                function loadVoices() {
+                                    const voices = speechSynthesis.getVoices();
+                                    console.log('[OBS] TTS voices loaded:', voices.length);
+                                    
+                                    if (voices.length > 0) {
+                                        const koreanVoices = voices.filter(v => v.lang.includes('ko') || v.lang.includes('KR'));
+                                        console.log('[OBS] Korean voices available:', koreanVoices.length);
+                                        
+                                        // 각 음성의 세부 정보 로그
+                                        voices.forEach((voice, index) => {
+                                            console.log(`[OBS] Voice ${index}: ${voice.name} (${voice.lang}) - Local: ${voice.localService}`);
+                                        });
+                                        
+                                        // 테스트 발화들 (다양한 방법으로 TTS 시스템 활성화)
+                                        try {
+                                            // 방법 1: 무음 테스트
+                                            const silentUtterance = new SpeechSynthesisUtterance('');
+                                            silentUtterance.volume = 0;
+                                            speechSynthesis.speak(silentUtterance);
+                                            console.log('[OBS] Silent TTS test completed');
+                                            
+                                            // 방법 2: 매우 짧은 테스트
+                                            setTimeout(() => {
+                                                const shortUtterance = new SpeechSynthesisUtterance('테스트');
+                                                shortUtterance.volume = 0.01;
+                                                shortUtterance.rate = 10;
+                                                speechSynthesis.speak(shortUtterance);
+                                                console.log('[OBS] Short TTS test completed');
+                                            }, 100);
+                                            
+                                            // 방법 3: 한국어 음성으로 테스트
+                                            if (koreanVoices.length > 0) {
+                                                setTimeout(() => {
+                                                    const koreanUtterance = new SpeechSynthesisUtterance('');
+                                                    koreanUtterance.voice = koreanVoices[0];
+                                                    koreanUtterance.volume = 0;
+                                                    speechSynthesis.speak(koreanUtterance);
+                                                    console.log('[OBS] Korean voice test completed');
+                                                }, 200);
+                                            }
+                                            
+                                        } catch (e) {
+                                            console.warn('[OBS] TTS test failed:', e);
+                                        }
+                                    }
+                                }
+                                
+                                // 음성 목록이 이미 로드되었는지 확인
+                                if (speechSynthesis.getVoices().length > 0) {
+                                    loadVoices();
+                                } else {
+                                    // 음성 목록 로드 이벤트 대기
+                                    speechSynthesis.addEventListener('voiceschanged', loadVoices, { once: true });
+                                    
+                                    // 타임아웃으로 강제 로드 시도 (여러 번)
+                                    setTimeout(loadVoices, 500);
+                                    setTimeout(loadVoices, 1000);
+                                    setTimeout(loadVoices, 2000);
+                                }
+                                
+                                // 추가적인 TTS 시스템 활성화 시도
+                                setTimeout(() => {
+                                    try {
+                                        // 사용자 상호작용 시뮬레이션
+                                        const events = ['click', 'touchstart', 'keydown', 'mousedown'];
+                                        events.forEach(eventType => {
+                                            const event = new Event(eventType, { 
+                                                bubbles: true, 
+                                                cancelable: true 
+                                            });
+                                            document.dispatchEvent(event);
+                                        });
+                                        
+                                        // 오디오 컨텍스트 활성화
+                                        if (window.AudioContext || window.webkitAudioContext) {
+                                            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                                            const audioContext = new AudioContextClass();
+                                            
+                                            if (audioContext.state === 'suspended') {
+                                                audioContext.resume().then(() => {
+                                                    console.log('[OBS] Audio context resumed for TTS');
+                                                }).catch(e => {
+                                                    console.warn('[OBS] Audio context resume failed:', e);
+                                                });
+                                            }
+                                        }
+                                        
+                                        console.log('[OBS] Additional TTS activation attempts completed');
+                                    } catch (e) {
+                                        console.warn('[OBS] Additional TTS activation failed:', e);
+                                    }
+                                }, 1000);
+                                
+                            } else {
+                                console.warn('[OBS] Speech synthesis not supported');
+                            }
+                        }
+                        
+                        // 서버 연결 상태 모니터링
+                        function startServerMonitoring() {
+                            let consecutiveFailures = 0;
+                            const maxFailures = 3;
+                            const checkInterval = 5000; // 5초마다 체크
+                            
+                            function checkServerConnection() {
+                                fetch('/settings', { 
+                                    method: 'HEAD',
+                                    cache: 'no-cache'
+                                })
+                                .then(response => {
+                                    if (response.ok) {
+                                        consecutiveFailures = 0;
+                                    } else {
+                                        throw new Error('Server response not ok');
+                                    }
+                                })
+                                .catch(error => {
+                                    consecutiveFailures++;
+                                    console.log(`[OBS] 서버 연결 실패 ${consecutiveFailures}/${maxFailures}:`, error);
+                                    
+                                    if (consecutiveFailures >= maxFailures) {
+                                        console.log('[OBS] 서버 연결 완전 실패 - 페이지 정리');
+                                        handleServerDisconnection();
+                                    }
+                                });
+                            }
+                            
+                            function handleServerDisconnection() {
+                                // 모든 로딩 인디케이터 강제 제거
+                                const loadingElements = document.querySelectorAll('.loading-indicator, .loading-item, .loading-spinner');
+                                loadingElements.forEach(el => {
+                                    el.style.display = 'none';
+                                    el.remove();
+                                });
+                                
+                                // 세션 배너 제거
+                                const sessionBanner = document.querySelector('.session-banner');
+                                if (sessionBanner) {
+                                    sessionBanner.style.display = 'none';
+                                    sessionBanner.remove();
+                                }
+                                
+                                // 연결 상태 표시 제거
+                                const connectionStatus = document.querySelector('.connection-status');
+                                if (connectionStatus) {
+                                    connectionStatus.style.display = 'none';
+                                    connectionStatus.remove();
+                                }
+                                
+                                // 토스트 알림 제거
+                                const toastContainer = document.querySelector('.toast-container');
+                                if (toastContainer) {
+                                    toastContainer.style.display = 'none';
+                                    toastContainer.remove();
+                                }
+                                
+                                console.log('[OBS] 서버 연결 끊김 - UI 요소 정리 완료');
+                                
+                                // 30초 후 페이지 새로고침 (서버 재시작 대기)
+                                setTimeout(() => {
+                                    console.log('[OBS] 서버 재연결 시도 - 페이지 새로고침');
+                                    window.location.reload();
+                                }, 30000);
+                            }
+                            
+                            // 초기 체크
+                            checkServerConnection();
+                            
+                            // 주기적 체크 시작
+                            setInterval(checkServerConnection, checkInterval);
+                            
+                            console.log('[OBS] 서버 모니터링 시작됨');
+                        }
                     </script>
                     <style>
                         /* OBS 전용 스타일 - 한국어 주석 */
@@ -697,104 +680,129 @@ async fn serve_svelte_obs(State(state): State<ServerState>) -> impl IntoResponse
                         }
                         /* OBS 모드에서 불필요한 요소 숨김 */
                         .obs-mode .session-banner,
-                        .obs-mode .bottom-nav-wrapper {
+                        .obs-mode .bottom-nav-wrapper,
+                        .obs-mode .loading-indicator,
+                        .obs-mode .connection-status,
+                        .obs-mode .toast-container {
                             display: none !important;
+                            visibility: hidden !important;
+                            opacity: 0 !important;
+                        }
+                        
+                        /* 서버 연결 끊김 시 모든 UI 요소 숨김 */
+                        .server-disconnected * {
+                            display: none !important;
+                        }
+                        
+                        .server-disconnected {
+                            background: transparent !important;
                         }
                     </style>"
             );
             println!("[Server] OBS HTML 수정 완료, 응답 전송");
-            Html(html).into_response()
-        },
+
+            // 캐시 방지 헤더 추가
+            let mut response = Html(html).into_response();
+            let headers = response.headers_mut();
+            headers.insert(
+                "Cache-Control",
+                "no-cache, no-store, must-revalidate".parse().unwrap(),
+            );
+            headers.insert("Pragma", "no-cache".parse().unwrap());
+            headers.insert("Expires", "0".parse().unwrap());
+
+            Ok(response)
+        }
         Err(e) => {
-            eprintln!("[Server] index.html을 찾을 수 없음: {:?}, 오류: {}", html_path, e);
-            (StatusCode::NOT_FOUND, "index.html을 찾을 수 없습니다").into_response()
+            eprintln!(
+                "[Server] index.html을 찾을 수 없음: {:?}, 오류: {}",
+                html_path, e
+            );
+            Err(AppError::PathError)
         }
     }
 }
 
 // 실제 치지직 API를 호출하는 팔로워 조회
-async fn get_followers(State(state): State<ServerState>) -> impl IntoResponse {
+async fn get_followers(State(state): State<ServerState>) -> Result<impl IntoResponse, AppError> {
     println!("[Server] GET /followers");
-    
-    // 쿠키와 사용자 ID 가져오기
+
     let cookies = {
-        let cookies_guard = state.app_state.cookies.lock().map_err(|e| {
-            eprintln!("[Server] Failed to lock cookies: {}", e);
-            return Json(json!({
-                "code": 401,
-                "message": "Authentication required",
-                "content": null
-            }));
-        }).unwrap();
-        
+        let cookies_guard = state
+            .app_state
+            .cookies
+            .lock()
+            .map_err(|_| AppError::LockError)?;
+
         match cookies_guard.as_ref() {
             Some(cookies) => cookies.clone(),
             None => {
                 println!("[Server] No cookies available");
-                return Json(json!({
-                    "code": 401,
-                    "message": "Authentication required",
-                    "content": null
-                }));
+                return Err(AppError::AuthError("인증이 필요합니다.".to_string()));
             }
         }
     };
-    
+
     let user_id_hash = {
-        let user_id_guard = state.app_state.user_id_hash.lock().map_err(|e| {
-            eprintln!("[Server] Failed to lock user_id_hash: {}", e);
-            return Json(json!({
-                "code": 500,
-                "message": "Internal server error",
-                "content": null
-            }));
-        }).unwrap();
-        
+        let user_id_guard = state
+            .app_state
+            .user_id_hash
+            .lock()
+            .map_err(|_| AppError::LockError)?;
+
         match user_id_guard.as_ref() {
             Some(user_id) => user_id.clone(),
             None => {
                 println!("[Server] No user ID available");
-                return Json(json!({
-                    "code": 401,
-                    "message": "User ID not available",
-                    "content": null
-                }));
+                return Err(AppError::AuthError("User ID Not available".to_string()));
             }
         }
     };
-    
+
     // 치지직 API 호출
     match crate::chzzk::get_followers(&state.app_state.client, &cookies, &user_id_hash).await {
         Ok(response) => {
-            println!("[Server] Successfully fetched {} followers", 
-                response.content.as_ref().map(|c| c.data.len()).unwrap_or(0));
-            Json(json!(response))
+            println!(
+                "[Server] Successfully fetched {} followers",
+                response.content.as_ref().map(|c| c.data.len()).unwrap_or(0)
+            );
+            Ok(Json(json!(response)))
         }
         Err(e) => {
             eprintln!("[Server] Failed to fetch followers: {}", e);
-            Json(json!({
-                "code": 500,
-                "message": format!("Failed to fetch followers: {}", e),
-                "content": null
-            }))
+            Err(e)
         }
     }
 }
 
-async fn test_follower(State(_state): State<ServerState>) -> impl IntoResponse {
-    // 테스트 팔로워 생성
+async fn test_follower(State(state): State<ServerState>) -> Result<impl IntoResponse, AppError> {
+    // AppConfig에서 테스트 닉네임 가져오기
+    let config = state.app_state.config.read().await;
+    let nickname = if config.test_nickname.is_empty() {
+        "테스트 유저".to_string()
+    } else {
+        config.test_nickname.clone()
+    };
+    drop(config);
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis()
         .to_string();
-    
-    let now_iso = format!("{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+
+    let now_iso = format!(
+        "{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    );
 
     let test_item = json!({
         "user": {
             "userIdHash": format!("test_{}", now),
-            "nickname": "루블리스",
+            "nickname": nickname,
             "profileImageUrl": "/default_profile.png"
         },
         "followingSince": now_iso
@@ -802,15 +810,143 @@ async fn test_follower(State(_state): State<ServerState>) -> impl IntoResponse {
 
     println!("[Server] Test follower created: {}", test_item);
 
-    // WebSocket으로 테스트 알림 브로드캐스트 (있는 경우만)
-    // state.ws_manager.broadcast_test_notification(test_item.clone()).await;
+    // WebSocket으로 테스트 알림 브로드캐스트
+    let follower = crate::chzzk::FollowerItem {
+        user: crate::chzzk::User {
+            user_id_hash: format!("test_{}", now),
+            nickname: nickname.clone(),
+            profile_image_url: Some("/default_profile.png".to_string()),
+        },
+        following_since: now_iso,
+    };
+    state.ws_manager.broadcast_new_follower(follower).await;
 
-    Json(json!({
+    Ok(Json(json!({
         "success": true,
-        "message": "Test follower added to queue"
-    }))
+        "message": format!("테스트 팔로워 '{}' 알림 전송 완료", nickname)
+    })))
 }
 
-async fn test_follower_get(State(state): State<ServerState>) -> impl IntoResponse {
+async fn test_follower_get(
+    State(state): State<ServerState>,
+) -> Result<impl IntoResponse, AppError> {
     test_follower(State(state)).await
+}
+
+// TTS 음성 생성 API
+async fn generate_tts(
+    State(_state): State<ServerState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, AppError> {
+    use axum::http::header;
+
+    println!("[Server] TTS generation request: {:?}", payload);
+
+    let text = match payload.get("text").and_then(|t| t.as_str()) {
+        Some(text) => text,
+        None => {
+            return Err(AppError::ParseError("Missing text parameter".to_string()));
+        }
+    };
+
+    // Windows TTS 사용 (SAPI)
+    match generate_tts_audio(text).await {
+        Ok(audio_data) => {
+            // WAV 파일로 응답 (타입 추론 명시를 위해 axum::body::Body 사용)
+            let mut response = axum::response::Response::new(axum::body::Body::from(audio_data));
+            response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, "audio/wav".parse().unwrap());
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                "no-cache, no-store, must-revalidate".parse().unwrap(),
+            );
+            Ok(response)
+        }
+        Err(e) => {
+            eprintln!("[Server] TTS generation failed: {}", e);
+            Err(AppError::Unknown(anyhow::anyhow!("TTS error: {}", e)))
+        }
+    }
+}
+
+// Windows SAPI를 사용한 TTS 음성 생성
+async fn generate_tts_audio(
+    text: &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    use std::fs;
+    use std::process::Command;
+
+    // 임시 파일 경로 생성
+    let temp_dir = std::env::temp_dir();
+    let audio_file = temp_dir.join(format!(
+        "fazzk_tts_{}.wav",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+
+    // PowerShell을 사용한 Windows TTS (SAPI)
+    let powershell_script = format!(
+        r#"
+        Add-Type -AssemblyName System.Speech
+        $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+        
+        # 한국어 음성 찾기
+        $voices = $synth.GetInstalledVoices()
+        $koreanVoice = $voices | Where-Object {{ $_.VoiceInfo.Culture.Name -like "*ko*" -or $_.VoiceInfo.Name -like "*Korean*" }}
+        
+        if ($koreanVoice) {{
+            $synth.SelectVoice($koreanVoice[0].VoiceInfo.Name)
+            Write-Host "Using Korean voice: $($koreanVoice[0].VoiceInfo.Name)"
+        }} else {{
+            Write-Host "No Korean voice found, using default"
+        }}
+        
+        # 음성 설정
+        $synth.Rate = 0
+        $synth.Volume = 100
+        
+        # WAV 파일로 저장
+        $synth.SetOutputToWaveFile("{}")
+        $synth.Speak("{}")
+        $synth.SetOutputToDefaultAudioDevice()
+        $synth.Dispose()
+        
+        Write-Host "TTS audio generated successfully"
+        "#,
+        audio_file.to_string_lossy().replace("\\", "\\\\"),
+        text.replace("\"", "\\\"")
+    );
+
+    println!("[TTS] Generating audio for: {}", text);
+
+    // PowerShell 실행
+    let output = Command::new("powershell")
+        .args(&["-Command", &powershell_script])
+        .output()
+        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("PowerShell TTS failed: {}", stderr).into());
+    }
+
+    // 생성된 파일 읽기
+    if !audio_file.exists() {
+        return Err("TTS audio file was not created".into());
+    }
+
+    let audio_data =
+        fs::read(&audio_file).map_err(|e| format!("Failed to read TTS audio file: {}", e))?;
+
+    // 임시 파일 정리
+    let _ = fs::remove_file(&audio_file);
+
+    println!(
+        "[TTS] Audio generated successfully: {} bytes",
+        audio_data.len()
+    );
+    Ok(audio_data)
 }

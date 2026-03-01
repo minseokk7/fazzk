@@ -1,6 +1,6 @@
+use crate::state::CookieData;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use serde::{Deserialize, Serialize};
-use crate::state::CookieData;
 
 #[derive(Debug, Deserialize)]
 struct UserStatusResponse {
@@ -16,35 +16,49 @@ struct UserStatusContent {
     nickname: String,
 }
 
-pub async fn get_profile_id(client: &reqwest::Client, cookies: &CookieData) -> Result<(String, String), String> {
+use crate::error::AppError;
+
+pub async fn get_profile_id(
+    client: &reqwest::Client,
+    cookies: &CookieData,
+) -> Result<(String, String), AppError> {
     let url = "https://comm-api.game.naver.com/nng_main/v1/user/getUserStatus";
-    
+
     let cookie_str = format!("NID_AUT={}; NID_SES={}", cookies.nid_aut, cookies.nid_ses);
-    
+
     let mut headers = HeaderMap::new();
-    headers.insert(COOKIE, HeaderValue::from_str(&cookie_str).map_err(|e| e.to_string())?);
+    headers.insert(
+        COOKIE,
+        HeaderValue::from_str(&cookie_str).map_err(|e| AppError::ParseError(e.to_string()))?,
+    );
     headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"));
 
-    // let client = reqwest::Client::new(); // Use passed client
-    let res = client.get(url)
+    let res = client
+        .get(url)
         .headers(headers)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
-        
+        .map_err(AppError::ReqwestError)?;
+
     if !res.status().is_success() {
-        return Err(format!("API Error: {}", res.status()));
+        return Err(AppError::ApiError(format!("API Error: {}", res.status())));
     }
-    
-    let body: UserStatusResponse = res.json().await.map_err(|e| e.to_string())?;
-    
+
+    let body: UserStatusResponse = res
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+
     if body.code == 200 {
         if let Some(content) = body.content {
             return Ok((content.user_id_hash, content.nickname));
         }
     }
-    
-    Err(format!("Auth Failed: {:?}", body.message))
+
+    Err(AppError::AuthError(format!(
+        "Auth Failed: {:?}",
+        body.message
+    )))
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -79,32 +93,48 @@ pub struct User {
     pub profile_image_url: Option<String>,
 }
 
-pub async fn get_followers(client: &reqwest::Client, cookies: &CookieData, user_id_hash: &str) -> Result<FollowerResponse, String> {
-    let url = format!("https://api.chzzk.naver.com/manage/v1/channels/{}/followers?page=0&size=10&userNickname=", user_id_hash);
-    
+pub async fn get_followers(
+    client: &reqwest::Client,
+    cookies: &CookieData,
+    user_id_hash: &str,
+) -> Result<FollowerResponse, AppError> {
+    let url = format!(
+        "https://api.chzzk.naver.com/manage/v1/channels/{}/followers?page=0&size=50&userNickname=",
+        user_id_hash
+    );
+
     let cookie_str = format!("NID_AUT={}; NID_SES={}", cookies.nid_aut, cookies.nid_ses);
-    
+
     let mut headers = HeaderMap::new();
-    headers.insert(COOKIE, HeaderValue::from_str(&cookie_str).map_err(|e| e.to_string())?);
+    headers.insert(
+        COOKIE,
+        HeaderValue::from_str(&cookie_str).map_err(|e| AppError::ParseError(e.to_string()))?,
+    );
     headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"));
 
-    // let client = reqwest::Client::new();
-    let res = client.get(url)
+    let res = client
+        .get(url)
         .headers(headers)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
-        
+        .map_err(AppError::ReqwestError)?;
+
     if !res.status().is_success() {
-        return Err(format!("API Error: {}", res.status()));
+        return Err(AppError::ApiError(format!("API Error: {}", res.status())));
     }
-    
-    let body_text = res.text().await.map_err(|e| e.to_string())?;
-    println!("[Chzzk API] Raw Response: {}", &body_text.chars().take(2000).collect::<String>());
-    
+
+    let body_text = res
+        .text()
+        .await
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+    println!(
+        "[Chzzk API] Raw Response: {}",
+        &body_text.chars().take(2000).collect::<String>()
+    );
+
     let body: FollowerResponse = serde_json::from_str(&body_text).map_err(|e| {
         eprintln!("[Chzzk API] Parse Error: {}", e);
-        e.to_string()
+        AppError::ParseError(e.to_string())
     })?;
     Ok(body)
 }

@@ -62,12 +62,12 @@
 
   /* 위치별 스타일 */
   .toast-container-top-right {
-    top: 20px;
+    top: 60px;
     right: 20px;
   }
 
   .toast-container-top-left {
-    top: 20px;
+    top: 60px;
     left: 20px;
   }
 
@@ -82,7 +82,7 @@
   }
 
   .toast-container-top-center {
-    top: 20px;
+    top: 60px;
     left: 50%;
     transform: translateX(-50%);
   }

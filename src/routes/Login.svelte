@@ -17,7 +17,7 @@
   let currentDownloadUrl = $state('');
   let isDownloading = $state(false);
   let downloadProgress = $state(0);
-  let currentAppVersion = $state('2.8.0'); // 기본값
+  let currentAppVersion = $state('2.9.0'); // 기본값
 
   onMount(async () => {
     // 다크 테마를 기본으로 설정
@@ -136,7 +136,31 @@
       try {
         await api.onUpdateProgress(payload => {
           console.log('[Update] Progress received:', payload);
-          downloadProgress = Math.round(payload.percent);
+
+          // payload.percent 처리 - 더 관대한 검증
+          let percent = payload?.percent;
+
+          // 문자열로 온 경우 숫자로 변환 시도
+          if (typeof percent === 'string') {
+            percent = parseFloat(percent);
+          }
+
+          // 유효한 숫자인지 확인하고 범위 제한
+          if (typeof percent === 'number' && !isNaN(percent) && isFinite(percent)) {
+            downloadProgress = Math.round(Math.max(0, Math.min(100, percent)));
+            console.log('[Update] Progress updated to:', downloadProgress + '%');
+          } else {
+            console.warn(
+              '[Update] Invalid progress value received:',
+              payload?.percent,
+              'keeping current:',
+              downloadProgress
+            );
+            // 유효하지 않은 값이면 현재 값 유지하되, 0이면 최소 진행 표시
+            if (downloadProgress === 0) {
+              downloadProgress = 5; // 5%로 설정하여 진행 중임을 표시
+            }
+          }
 
           // 진행률이 100%가 되면 잠시 대기 후 설치 메시지 표시
           if (downloadProgress >= 100) {
@@ -155,6 +179,14 @@
       console.log('[Update] Starting download...');
       await api.downloadUpdate(currentDownloadUrl);
       console.log('[Update] Download and install completed');
+
+      // 업데이트 성공 시 상태 초기화
+      downloadProgress = 100;
+      setTimeout(() => {
+        isDownloading = false;
+        downloadProgress = 0;
+        console.log('[Update] Update process completed successfully');
+      }, 1000);
     } catch (e) {
       console.error('Auto update failed:', e);
       alert('자동 업데이트 실패: ' + e);
@@ -264,17 +296,18 @@
   <!-- 업데이트 모달 -->
   {#if showUpdateModal}
     <div class="update-modal">
-      <div class="update-modal-backdrop" 
-           role="button" 
-           tabindex="0"
-           aria-label="업데이트 모달 닫기"
-           onclick={() => (showUpdateModal = false)}
-           onkeydown={(e) => {
-             if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-               e.preventDefault();
-               showUpdateModal = false;
-             }
-           }}
+      <div
+        class="update-modal-backdrop"
+        role="button"
+        tabindex="0"
+        aria-label="업데이트 모달 닫기"
+        onclick={() => (showUpdateModal = false)}
+        onkeydown={e => {
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+            e.preventDefault();
+            showUpdateModal = false;
+          }
+        }}
       ></div>
       <div class="update-modal-content">
         <div class="update-modal-glow-left"></div>
@@ -341,10 +374,13 @@
                     ? '업데이트 다운로드 중...'
                     : '업데이트 설치 중...'}</span
                 >
-                <span>{downloadProgress}%</span>
+                <span>{isNaN(downloadProgress) ? 0 : downloadProgress}%</span>
               </div>
               <div class="modal-progress-bar">
-                <div class="modal-progress-fill" style="width: {downloadProgress}%"></div>
+                <div
+                  class="modal-progress-fill"
+                  style="width: {isNaN(downloadProgress) ? 0 : downloadProgress}%"
+                ></div>
               </div>
             </div>
           {:else}

@@ -51,32 +51,25 @@ pub struct UpdateCheckResult {
     pub error: Option<String>,
 }
 
+use semver::Version;
+use std::cmp::Ordering;
+
 /// Semantic Version 비교
 ///
 /// v1 > v2 이면 1, v1 < v2 이면 -1, 같으면 0
 fn compare_versions(v1: &str, v2: &str) -> i32 {
-    let parse = |v: &str| -> Vec<u32> {
-        v.trim_start_matches('v')
-            .split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
+    let v1_clean = v1.trim_start_matches('v');
+    let v2_clean = v2.trim_start_matches('v');
 
-    let parts1 = parse(v1);
-    let parts2 = parse(v2);
-
-    for i in 0..3 {
-        let p1 = parts1.get(i).copied().unwrap_or(0);
-        let p2 = parts2.get(i).copied().unwrap_or(0);
-
-        if p1 > p2 {
-            return 1;
+    if let (Ok(ver1), Ok(ver2)) = (Version::parse(v1_clean), Version::parse(v2_clean)) {
+        match ver1.cmp(&ver2) {
+            Ordering::Greater => 1,
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
         }
-        if p1 < p2 {
-            return -1;
-        }
+    } else {
+        0
     }
-    0
 }
 
 /// GitHub에서 최신 릴리즈 정보 가져오기

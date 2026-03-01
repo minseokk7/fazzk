@@ -1,6 +1,7 @@
 <script>
   import { api } from '../lib/api.ts';
-  
+  import LazyImage from './LazyImage.svelte';
+
   export let currentItem = null;
   export let animationType = 'fade';
   export let notificationLayout = 'vertical';
@@ -13,9 +14,10 @@
       class="notification-container show anim-{animationType} layout-{notificationLayout}"
       style="--text-color: {textColor}"
     >
-      <img
-        src={currentItem.user?.profileImageUrl || '/default_profile.png'}
-        class="profile-img"
+      <LazyImage
+        src={currentItem.user?.profileImageUrl || ''}
+        placeholder="/default_profile.png"
+        className="profile-img"
         alt="Profile"
       />
       <div class="content">
@@ -83,6 +85,10 @@
     height: 80px;
     margin-bottom: 0;
     flex-shrink: 0;
+    object-fit: cover;
+    object-position: center;
+    overflow: hidden;
+    box-sizing: border-box;
   }
 
   .notification-container.layout-horizontal .nickname {
@@ -103,6 +109,10 @@
     box-shadow: 0 0 20px rgba(0, 255, 163, 0.3);
     margin-bottom: 15px;
     object-fit: cover;
+    object-position: center;
+    overflow: hidden;
+    background-color: transparent;
+    box-sizing: border-box;
   }
 
   .layout-vertical .profile-img {

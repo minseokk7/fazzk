@@ -44,16 +44,66 @@
 
   // 컴포넌트 마운트
   onMount(() => {
+    // OBS 모드 실시간 감지 및 즉시 숨김 처리
+    const checkOBSMode = () => {
+      const isOBSMode = !!(
+        window.OBS_MODE ||
+        window.DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      );
+      
+      if (isOBSMode) {
+        // OBS 모드에서는 모든 로딩 상태 강제 제거
+        loadingStates = [];
+        visible = false;
+        console.log('[LoadingIndicator] OBS mode detected - clearing all loading states');
+        return;
+      }
+    };
+
+    // 초기 체크
+    checkOBSMode();
+
+    // 주기적으로 OBS 모드 체크 (DOM 변경 감지)
+    const obsCheckInterval = setInterval(checkOBSMode, 100);
+
     // 로딩 상태 리스너 등록
     removeListener = loadingManager.addListener((states) => {
+      // OBS 모드 재확인
+      const isOBSMode = !!(
+        window.OBS_MODE ||
+        window.DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      );
+      
+      if (isOBSMode) {
+        loadingStates = [];
+        visible = false;
+        console.log('[LoadingIndicator] OBS mode - ignoring loading states');
+        return;
+      }
+      
       loadingStates = states;
       visible = states.length > 0;
     });
 
     // 통계 리스너 등록
     removeStatsListener = loadingManager.addStatsListener((newStats) => {
-      stats = newStats;
+      const isOBSMode = !!(
+        window.OBS_MODE ||
+        window.DIRECT_NOTIFIER_MODE ||
+        document.body?.classList.contains('obs-mode')
+      );
+      
+      if (!isOBSMode) {
+        stats = newStats;
+      }
     });
+
+    // 정리 함수에 interval 추가
+    return () => {
+      clearInterval(obsCheckInterval);
+    };
   });
 
   // 컴포넌트 언마운트
@@ -149,11 +199,11 @@
                   <div class="progress-bar">
                     <div 
                       class="progress-fill"
-                      style="width: {state.progress}%"
+                      style="width: {isNaN(state.progress) ? 0 : state.progress}%"
                     ></div>
                   </div>
                   <span class="progress-text">
-                    {Math.round(state.progress)}%
+                    {Math.round(isNaN(state.progress) ? 0 : state.progress)}%
                   </span>
                 </div>
               {/if}
@@ -490,5 +540,19 @@
     .progress-fill {
       transition: none;
     }
+  }
+
+  /* OBS 모드에서 로딩 인디케이터 숨김 */
+  :global(.obs-mode) .loading-indicator {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  /* 추가적인 OBS 모드 숨김 처리 */
+  :global(body[class*="obs"]) .loading-indicator,
+  :global(html[data-obs-mode="true"]) .loading-indicator {
+    display: none !important;
   }
 </style>
