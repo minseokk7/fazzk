@@ -3,6 +3,8 @@
   import { push } from 'svelte-spa-router';
   import { api } from '../lib/api.ts';
 
+  const isDev = import.meta.env.DEV;
+
   // Cleanup variables
   let updateCheckIntervalId = null;
 
@@ -17,15 +19,11 @@
   let currentDownloadUrl = $state('');
   let isDownloading = $state(false);
   let downloadProgress = $state(0);
-  let currentAppVersion = $state('2.9.0'); // 기본값
+  let currentAppVersion = $state('3.0.0'); // 기본값
 
   onMount(async () => {
     // 다크 테마를 기본으로 설정
     document.documentElement.setAttribute('data-theme', 'dark');
-
-    if (api.setTheme) {
-      api.setTheme(false); // 다크 테마
-    }
 
     // 자동 로그인 이벤트 리스닝
     if (api.isTauri) {
@@ -44,8 +42,10 @@
     }
 
     // 업데이트 체크
-    setTimeout(checkForUpdates, 2000);
-    updateCheckIntervalId = setInterval(checkForUpdates, 30 * 60 * 1000);
+    if (!isDev) {
+      setTimeout(checkForUpdates, 2000);
+      updateCheckIntervalId = setInterval(checkForUpdates, 30 * 60 * 1000);
+    }
   });
 
   // Cleanup on component destroy
@@ -86,7 +86,7 @@
     let cookies;
     try {
       cookies = JSON.parse(cookieJson);
-    } catch (e) {
+    } catch {
       alert('올바른 JSON 형식이 아닙니다.');
       return;
     }
@@ -104,7 +104,7 @@
   }
 
   async function checkForUpdates() {
-    if (!api.checkForUpdates) return;
+    if (isDev || !api.checkForUpdates) return;
 
     try {
       const result = await api.checkForUpdates();
@@ -120,6 +120,7 @@
   }
 
   function openUpdateModal() {
+    if (isDev) return;
     checkForUpdates();
     showUpdateModal = true;
   }
@@ -198,37 +199,39 @@
 
 <div class="login-container">
   <!-- 업데이트 알림 버튼 -->
-  <button class="update-notify-btn" onclick={openUpdateModal}>
-    {#if updateData}
-      <div class="update-notify-badge">
-        <span class="update-notify-ping"></span>
-        <span class="update-notify-dot"></span>
+  {#if !isDev}
+    <button class="update-notify-btn" onclick={openUpdateModal}>
+      {#if updateData}
+        <div class="update-notify-badge">
+          <span class="update-notify-ping"></span>
+          <span class="update-notify-dot"></span>
+        </div>
+      {/if}
+      <div class="update-notify-content">
+        <div class="update-notify-icon">
+          <svg stroke="currentColor" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+              stroke-width="2"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            ></path>
+          </svg>
+          <div class="update-notify-icon-glow"></div>
+        </div>
+        <div class="update-notify-text">
+          <span class="update-notify-title">업데이트</span>
+          <span class="update-notify-subtitle">클릭하여 확인</span>
+        </div>
+        <div class="update-notify-dots">
+          <div class="dot dot-1"></div>
+          <div class="dot dot-2"></div>
+          <div class="dot dot-3"></div>
+        </div>
       </div>
-    {/if}
-    <div class="update-notify-content">
-      <div class="update-notify-icon">
-        <svg stroke="currentColor" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-            stroke-width="2"
-            stroke-linejoin="round"
-            stroke-linecap="round"
-          ></path>
-        </svg>
-        <div class="update-notify-icon-glow"></div>
-      </div>
-      <div class="update-notify-text">
-        <span class="update-notify-title">업데이트</span>
-        <span class="update-notify-subtitle">클릭하여 확인</span>
-      </div>
-      <div class="update-notify-dots">
-        <div class="dot dot-1"></div>
-        <div class="dot dot-2"></div>
-        <div class="dot dot-3"></div>
-      </div>
-    </div>
-    <div class="update-notify-overlay"></div>
-  </button>
+      <div class="update-notify-overlay"></div>
+    </button>
+  {/if}
 
   <!-- 메인 컨테이너 -->
   <div class="container">
@@ -255,7 +258,7 @@
         </li>
         <li>
           <strong>OBS 연동:</strong> OBS에서 브라우저 소스를 추가하고 URL을
-          <code>http://localhost:3000/follower</code>로 설정하세요.
+          <code>http://127.0.0.1:3001/follower</code>로 설정하세요.
         </li>
         <li>
           <strong>테스트:</strong> 알림 화면에서 "테스트 알림" 버튼을 클릭하여 알림이 제대로 작동하는지

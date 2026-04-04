@@ -4,26 +4,27 @@
 
 {#if showKeyboardHelp}
   <!-- 배경 오버레이 -->
-  <div class="modal-overlay" 
-       role="button" 
-       tabindex="0"
-       aria-label="모달 닫기"
-       onclick={() => (showKeyboardHelp = false)}
-       onkeydown={(e) => {
-         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-           e.preventDefault();
-           showKeyboardHelp = false;
-         }
-       }}
+  <div
+    class="modal-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="모달 닫기"
+    onclick={() => (showKeyboardHelp = false)}
+    onkeydown={e => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+        e.preventDefault();
+        showKeyboardHelp = false;
+      }
+    }}
   ></div>
-  
+
   <!-- 모달 컨텐츠 -->
   <div class="keyboard-help-modal">
     <div class="settings-header">
       <h2>키보드 단축키</h2>
       <button class="close-btn" onclick={() => (showKeyboardHelp = false)}>×</button>
     </div>
-    
+
     <div class="keyboard-shortcuts">
       <div class="shortcut-item">
         <div class="shortcut-key">Ctrl + T</div>
@@ -50,10 +51,8 @@
         <div class="shortcut-desc">모달 창 닫기</div>
       </div>
     </div>
-    
-    <div class="tip-message">
-      💡 이 단축키들은 앱이 포커스된 상태에서 작동합니다
-    </div>
+
+    <div class="tip-message">💡 이 단축키들은 앱이 포커스된 상태에서 작동합니다</div>
   </div>
 {/if}
 

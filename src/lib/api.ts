@@ -1,117 +1,94 @@
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import packageJson from '../../package.json';
 import type { EnvironmentCheck } from '../types/tauri';
 import { globalErrorHandler } from './errorHandler';
-import { createLogger } from './logger';
 import { loadingManager } from './loadingManager';
+import { createLogger } from './logger';
 
 const log = createLogger('API');
-
-// Tauri 전역 객체 타입 확장
-declare global {
-  interface Window {
-    __TAURI_INTERNALS__?: any;
-    __TAURI__?: any;
-  }
-}
-
-// 환경 체크
 const isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
+const fallbackAppVersion = packageJson.version;
 
-// API 에러 타입
 interface APIError extends Error {
   code?: string;
   command?: string;
-  context?: any;
+  context?: unknown;
 }
 
-// API 에러 생성 헬퍼
-function createAPIError(message: string, command?: string, originalError?: any): APIError {
+type UpdateProgressPayload = { progress?: number; percent?: number; message?: string };
+type UpdateProgressCallback = (event: { payload: UpdateProgressPayload }) => void;
+
+interface API extends EnvironmentCheck {
+  getCookies(): Promise<unknown[]>;
+  getServerPort(): Promise<number>;
+  getAppVersion(): Promise<string>;
+  manualLogin(nidAut: string, nidSes: string): Promise<boolean>;
+  selectAudioFile(): Promise<string | null>;
+  convertFileSrc(path: string): string;
+  minimize(): Promise<void>;
+  toggleMaximize(): Promise<void>;
+  close(): Promise<void>;
+  listen<T = unknown>(
+    event: string,
+    callback: (event: { payload: T }) => void
+  ): Promise<() => void>;
+  checkForUpdates(): Promise<{ has_update: boolean; error?: string }>;
+  openDownloadPage(url: string): Promise<void>;
+  downloadUpdate(url: string): Promise<void>;
+  onUpdateProgress(callback: UpdateProgressCallback): Promise<() => void>;
+  invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
+}
+
+function createAPIError(message: string, command?: string, originalError?: unknown): APIError {
   const error = new Error(message) as APIError;
-  error.command = command;
-  error.context = originalError;
+  if (command !== undefined) {
+    error.command = command;
+  }
+  if (originalError !== undefined) {
+    error.context = originalError;
+  }
   return error;
 }
 
-// 안전한 invoke 래퍼
-async function safeInvoke<T = any>(command: string, args?: Record<string, any>): Promise<T> {
+async function safeInvoke<T = unknown>(
+  command: string,
+  args?: Record<string, unknown>
+): Promise<T> {
   if (!isTauri) {
-    const error = createAPIError(`Command '${command}' not available in browser mode`, command);
-    throw error;
+    throw createAPIError(`Command '${command}' not available in browser mode`, command);
   }
 
   const loadingId = `api-${command}-${Date.now()}`;
 
   try {
-    // 로딩 시작
     loadingManager.start(loadingId, `${command} 실행 중...`, {
       category: 'api',
-      priority: 'medium'
+      priority: 'medium',
     });
 
     log.debug(`Invoking command: ${command}`, args);
     const result = await invoke<T>(command, args);
-
     log.debug(`Command '${command}' completed successfully`);
     return result;
-  } catch (e) {
+  } catch (cause) {
     const error = createAPIError(
-      `Command '${command}' failed: ${e instanceof Error ? e.message : String(e)}`,
+      `Command '${command}' failed: ${cause instanceof Error ? cause.message : String(cause)}`,
       command,
-      e
+      cause
     );
-
-    // 전역 에러 핸들러에 보고
     globalErrorHandler.handleError(error, {
       component: 'API',
       command,
       args,
-      isTauri
+      isTauri,
     });
-
     throw error;
   } finally {
-    // 로딩 완료
     loadingManager.finish(loadingId);
   }
-}
-
-// 업데이트 진행률 콜백 타입
-type UpdateProgressCallback = (event: { payload: { progress: number; message: string } }) => void;
-
-// API 인터페이스 정의
-interface API extends EnvironmentCheck {
-  // === Cookies / Session ===
-  getCookies(): Promise<any[]>;
-  getServerPort(): Promise<number>;
-  getAppVersion(): Promise<string>;
-  manualLogin(nidAut: string, nidSes: string): Promise<boolean>;
-
-  // === Settings & Files ===
-  selectAudioFile(): Promise<string | null>;
-  convertFileSrc(path: string): string;
-
-  // === Window Controls ===
-  minimize(): Promise<void>;
-  toggleMaximize(): Promise<void>;
-  close(): Promise<void>;
-
-  // === Events ===
-  listen<T = any>(event: string, callback: (event: { payload: T }) => void): Promise<() => void>;
-
-  // === Theme ===
-  setTheme(isDark: boolean): Promise<void>;
-
-  // === Updates ===
-  checkForUpdates(): Promise<{ has_update: boolean; error?: string }>;
-  openDownloadPage(url: string): Promise<void>;
-  downloadUpdate(url: string): Promise<void>;
-  onUpdateProgress(callback: UpdateProgressCallback): Promise<() => void>;
-
-  // === Tauri Invoke ===
-  invoke<T = any>(command: string, args?: Record<string, any>): Promise<T>;
 }
 
 export const api: API = {
@@ -119,55 +96,54 @@ export const api: API = {
   isDesktop: isTauri,
   isBrowser: !isTauri,
 
-  // === Cookies / Session ===
-  getCookies: async (): Promise<any[]> => {
+  async getCookies(): Promise<unknown[]> {
     if (!isTauri) {
       log.warn('getCookies not available in browser mode');
       return [];
     }
+
     try {
-      return await safeInvoke('get_cookies');
-    } catch (e) {
-      log.error('getCookies failed:', e);
+      return await safeInvoke<unknown[]>('get_cookies');
+    } catch (cause) {
+      log.error('getCookies failed:', cause);
       return [];
     }
   },
 
-  getServerPort: async (): Promise<number> => {
+  async getServerPort(): Promise<number> {
     if (!isTauri) {
       log.debug('Using default port 3000 in browser mode');
       return 3000;
     }
+
     try {
-      return await safeInvoke('get_server_port');
-    } catch (e) {
-      log.error('getServerPort failed, using default port 3000:', e);
+      return await safeInvoke<number>('get_server_port');
+    } catch (cause) {
+      log.error('getServerPort failed, using default port 3000:', cause);
       return 3000;
     }
   },
 
-  getAppVersion: async (): Promise<string> => {
+  async getAppVersion(): Promise<string> {
     if (!isTauri) {
-      log.debug('Using default version in browser mode');
-      return '2.8.0';
+      log.debug('Using fallback version in browser mode');
+      return fallbackAppVersion;
     }
+
     try {
-      return await safeInvoke('get_app_version');
-    } catch (e) {
-      log.error('getAppVersion failed, using default version:', e);
-      return '2.8.0';
+      return await safeInvoke<string>('get_app_version');
+    } catch (cause) {
+      log.error('getAppVersion failed, using fallback version:', cause);
+      return fallbackAppVersion;
     }
   },
 
-  manualLogin: async (nidAut: string, nidSes: string): Promise<boolean> => {
+  async manualLogin(nidAut: string, nidSes: string): Promise<boolean> {
     if (!isTauri) {
-      const error = createAPIError('Manual login not available in browser mode', 'manual_login');
-      throw error;
+      throw createAPIError('Manual login not available in browser mode', 'manual_login');
     }
-
     if (!nidAut || !nidSes) {
-      const error = createAPIError('NID_AUT and NID_SES are required', 'manual_login');
-      throw error;
+      throw createAPIError('NID_AUT and NID_SES are required', 'manual_login');
     }
 
     const loadingId = 'manual-login';
@@ -175,22 +151,21 @@ export const api: API = {
     try {
       loadingManager.start(loadingId, '로그인 중...', {
         category: 'auth',
-        priority: 'high'
+        priority: 'high',
       });
 
       await safeInvoke('manual_login', { nidAut, nidSes });
       log.info('Manual login successful');
       return true;
-    } catch (e) {
-      log.error('Manual login failed:', e);
-      throw e;
+    } catch (cause) {
+      log.error('Manual login failed:', cause);
+      throw cause;
     } finally {
       loadingManager.finish(loadingId);
     }
   },
 
-  // === Settings & Files ===
-  selectAudioFile: async (): Promise<string | null> => {
+  async selectAudioFile(): Promise<string | null> {
     if (!isTauri) {
       log.warn('File selection not available in browser mode');
       return null;
@@ -199,9 +174,9 @@ export const api: API = {
     const loadingId = 'file-selection';
 
     try {
-      loadingManager.start(loadingId, '파일 선택 대화상자 열기...', {
+      loadingManager.start(loadingId, '파일 선택 대화상자 여는 중...', {
         category: 'file',
-        priority: 'medium'
+        priority: 'medium',
       });
 
       const selected = await openDialog({
@@ -216,11 +191,11 @@ export const api: API = {
       }
 
       return selected as string | null;
-    } catch (e) {
+    } catch (cause) {
       const error = createAPIError(
-        `Audio file selection failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Audio file selection failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         'selectAudioFile',
-        e
+        cause
       );
       globalErrorHandler.handleError(error, { component: 'API', operation: 'file-selection' });
       return null;
@@ -229,10 +204,8 @@ export const api: API = {
     }
   },
 
-  convertFileSrc: (path: string): string => {
-    if (!isTauri) return path;
-    if (!path) {
-      log.warn('convertFileSrc called with empty path');
+  convertFileSrc(path: string): string {
+    if (!isTauri || !path) {
       return path;
     }
 
@@ -240,135 +213,120 @@ export const api: API = {
       const converted = convertFileSrc(path);
       log.debug('File path converted:', path, '->', converted);
       return converted;
-    } catch (e) {
+    } catch (cause) {
       const error = createAPIError(
-        `File path conversion failed: ${e instanceof Error ? e.message : String(e)}`,
+        `File path conversion failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         'convertFileSrc',
-        e
+        cause
       );
       globalErrorHandler.handleError(error, { component: 'API', originalPath: path });
       return path;
     }
   },
 
-  // === Window Controls ===
-  minimize: async (): Promise<void> => {
+  async minimize(): Promise<void> {
     if (!isTauri) {
       log.warn('Window minimize not available in browser mode');
       return;
     }
+
     try {
       await getCurrentWindow().minimize();
       log.debug('Window minimized');
-    } catch (e) {
+    } catch (cause) {
       const error = createAPIError(
-        `Window minimize failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Window minimize failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         'minimize',
-        e
+        cause
       );
       globalErrorHandler.handleError(error, { component: 'API', operation: 'window-control' });
     }
   },
 
-  toggleMaximize: async (): Promise<void> => {
+  async toggleMaximize(): Promise<void> {
     if (!isTauri) {
       log.warn('Window maximize not available in browser mode');
       return;
     }
+
     try {
       const win = getCurrentWindow();
-      const isMaximized = await win.isMaximized();
-      if (isMaximized) {
+      const maximized = await win.isMaximized();
+      if (maximized) {
         await win.unmaximize();
         log.debug('Window unmaximized');
       } else {
         await win.maximize();
         log.debug('Window maximized');
       }
-    } catch (e) {
+    } catch (cause) {
       const error = createAPIError(
-        `Window maximize toggle failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Window maximize toggle failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         'toggleMaximize',
-        e
+        cause
       );
       globalErrorHandler.handleError(error, { component: 'API', operation: 'window-control' });
     }
   },
 
-  close: async (): Promise<void> => {
+  async close(): Promise<void> {
     if (!isTauri) {
       log.warn('Window close not available in browser mode');
       return;
     }
+
     try {
       await getCurrentWindow().close();
       log.debug('Window closed');
-    } catch (e) {
+    } catch (cause) {
       const error = createAPIError(
-        `Window close failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Window close failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         'close',
-        e
+        cause
       );
       globalErrorHandler.handleError(error, { component: 'API', operation: 'window-control' });
     }
   },
 
-  // === Events ===
-  listen: <T = any>(
+  listen<T = unknown>(
     event: string,
     callback: (event: { payload: T }) => void
-  ): Promise<() => void> => {
+  ): Promise<() => void> {
     if (!isTauri) {
       log.warn(`Event listening for '${event}' not available in browser mode`);
-      return Promise.resolve(() => { });
+      return Promise.resolve(() => {});
     }
 
     try {
       log.debug(`Setting up event listener for: ${event}`);
-      return listen(event, (eventData) => {
+      return listen(event, eventData => {
         try {
-          callback(eventData);
-        } catch (e) {
+          callback(eventData as { payload: T });
+        } catch (cause) {
           const error = createAPIError(
-            `Event callback error for '${event}': ${e instanceof Error ? e.message : String(e)}`,
+            `Event callback error for '${event}': ${cause instanceof Error ? cause.message : String(cause)}`,
             'listen',
-            e
+            cause
           );
           globalErrorHandler.handleError(error, {
             component: 'API',
             event,
-            eventData: eventData.payload
+            eventData: eventData.payload,
           });
         }
       });
-    } catch (e) {
+    } catch (cause) {
       const error = createAPIError(
-        `Failed to set up event listener for '${event}': ${e instanceof Error ? e.message : String(e)}`,
+        `Failed to set up event listener for '${event}': ${cause instanceof Error ? cause.message : String(cause)}`,
         'listen',
-        e
+        cause
       );
       globalErrorHandler.handleError(error, { component: 'API', event });
-      return Promise.resolve(() => { });
+      return Promise.resolve(() => {});
     }
   },
 
-  // === Theme ===
-  setTheme: async (isDark: boolean): Promise<void> => {
-    if (!isTauri) {
-      log.debug('Theme setting not available in browser mode');
-      return;
-    }
-    try {
-      await safeInvoke('set_theme', { isDark });
-      log.info(`Theme set to: ${isDark ? 'dark' : 'light'}`);
-    } catch (e) {
-      log.error('setTheme failed:', e);
-      // 테마 설정 실패는 치명적이지 않으므로 에러를 던지지 않음
-    }
-  },
-
-  // === Updates ===
-  checkForUpdates: async (): Promise<{ has_update: boolean; error?: string }> => {
+  async checkForUpdates(): Promise<{ has_update: boolean; error?: string }> {
     if (!isTauri) {
       log.debug('Update check not available in browser mode');
       return { has_update: false, error: 'Not available in browser mode' };
@@ -379,32 +337,27 @@ export const api: API = {
     try {
       loadingManager.start(loadingId, '업데이트 확인 중...', {
         category: 'api',
-        priority: 'low'
+        priority: 'low',
       });
 
-      const result = await safeInvoke('check_for_updates');
+      const result = await safeInvoke<{ has_update: boolean; error?: string }>('check_for_updates');
       log.info('Update check completed:', result);
       return result;
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      log.error('Update check failed:', errorMessage);
-      return {
-        has_update: false,
-        error: errorMessage
-      };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      log.error('Update check failed:', message);
+      return { has_update: false, error: message };
     } finally {
       loadingManager.finish(loadingId);
     }
   },
 
-  openDownloadPage: async (url: string): Promise<void> => {
+  async openDownloadPage(url: string): Promise<void> {
     if (!url) {
-      const error = createAPIError('URL is required for opening download page', 'openDownloadPage');
-      throw error;
+      throw createAPIError('URL is required for opening download page', 'openDownloadPage');
     }
 
     if (!isTauri) {
-      log.info('Opening download page in browser:', url);
       window.open(url, '_blank');
       return;
     }
@@ -412,22 +365,18 @@ export const api: API = {
     try {
       await safeInvoke('open_download_page', { url });
       log.info('Download page opened:', url);
-    } catch (e) {
-      log.error('Failed to open download page:', e);
-      // 폴백: 브라우저에서 열기
+    } catch (cause) {
+      log.error('Failed to open download page:', cause);
       window.open(url, '_blank');
     }
   },
 
-  downloadUpdate: async (url: string): Promise<void> => {
+  async downloadUpdate(url: string): Promise<void> {
     if (!isTauri) {
-      const error = createAPIError('Update download not available in browser mode', 'downloadUpdate');
-      throw error;
+      throw createAPIError('Update download not available in browser mode', 'downloadUpdate');
     }
-
     if (!url) {
-      const error = createAPIError('URL is required for downloading update', 'downloadUpdate');
-      throw error;
+      throw createAPIError('URL is required for downloading update', 'downloadUpdate');
     }
 
     const loadingId = 'update-download';
@@ -436,47 +385,44 @@ export const api: API = {
       loadingManager.start(loadingId, '업데이트 다운로드 중...', {
         category: 'api',
         priority: 'high',
-        progress: 0
+        progress: 0,
       });
 
-      log.info('Starting update download:', url);
       await safeInvoke('download_and_install_update', { url });
       log.info('Update download completed');
-    } catch (e) {
-      log.error('Update download failed:', e);
-      throw e;
+    } catch (cause) {
+      log.error('Update download failed:', cause);
+      throw cause;
     } finally {
       loadingManager.finish(loadingId);
     }
   },
 
-  onUpdateProgress: (callback: UpdateProgressCallback): Promise<() => void> => {
+  onUpdateProgress(callback: UpdateProgressCallback): Promise<() => void> {
     if (!isTauri) {
       log.warn('Update progress monitoring not available in browser mode');
-      return Promise.resolve(() => { });
+      return Promise.resolve(() => {});
     }
 
-    return api.listen('update-progress', (event) => {
+    return api.listen<UpdateProgressPayload>('update-progress', event => {
       try {
-        // event.payload를 콜백에 전달
-        callback(event.payload);
-      } catch (e) {
+        callback(event);
+      } catch (cause) {
         const error = createAPIError(
-          `Update progress callback error: ${e instanceof Error ? e.message : String(e)}`,
+          `Update progress callback error: ${cause instanceof Error ? cause.message : String(cause)}`,
           'onUpdateProgress',
-          e
+          cause
         );
         globalErrorHandler.handleError(error, {
           component: 'API',
           event: 'update-progress',
-          payload: event.payload
+          payload: event.payload,
         });
       }
     });
   },
 
-  // === Tauri Invoke ===
-  invoke: <T = any>(command: string, args?: Record<string, any>): Promise<T> => {
+  invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T> {
     return safeInvoke<T>(command, args);
   },
 };

@@ -28,7 +28,7 @@ export class NetworkMonitor {
   constructor() {
     this.state = {
       online: navigator.onLine,
-      lastChanged: Date.now()
+      lastChanged: Date.now(),
     };
 
     this.setupEventListeners();
@@ -60,11 +60,11 @@ export class NetworkMonitor {
    */
   private handleOnline(): void {
     log.info('Network came online');
-    
+
     this.state = {
       ...this.state,
       online: true,
-      lastChanged: Date.now()
+      lastChanged: Date.now(),
     };
 
     this.updateNetworkInfo();
@@ -83,11 +83,11 @@ export class NetworkMonitor {
    */
   private handleOffline(): void {
     log.warn('Network went offline');
-    
+
     this.state = {
       ...this.state,
       online: false,
-      lastChanged: Date.now()
+      lastChanged: Date.now(),
     };
 
     this.notifyListeners();
@@ -117,14 +117,14 @@ export class NetworkMonitor {
           effectiveType: connection.effectiveType,
           downlink: connection.downlink,
           rtt: connection.rtt,
-          saveData: connection.saveData
+          saveData: connection.saveData,
         };
 
         log.debug('Network info updated:', {
           effectiveType: this.state.effectiveType,
           downlink: this.state.downlink,
           rtt: this.state.rtt,
-          saveData: this.state.saveData
+          saveData: this.state.saveData,
         });
       }
     }
@@ -143,23 +143,25 @@ export class NetworkMonitor {
    * 실제 연결성 테스트
    */
   private async performConnectivityCheck(): Promise<void> {
-    if (!this.state.online) return;
+    if (!this.state.online) {
+      return;
+    }
 
     try {
       const start = performance.now();
-      
+
       // 작은 이미지 파일로 연결성 테스트
       const response = await fetch('/favicon.ico', {
         method: 'HEAD',
         cache: 'no-cache',
-        signal: AbortSignal.timeout(5000) // 5초 타임아웃
+        signal: AbortSignal.timeout(5000), // 5초 타임아웃
       });
 
       const latency = performance.now() - start;
 
       if (response.ok) {
         log.debug(`Connectivity check passed (${Math.round(latency)}ms)`);
-        
+
         // 연결 관리자에 지연시간 업데이트
         if (connectionManager.getState().status === 'connected') {
           connectionManager.updateLatency(latency);
@@ -169,12 +171,12 @@ export class NetworkMonitor {
       }
     } catch (error) {
       log.warn('Connectivity check failed:', error);
-      
+
       // 실제로는 온라인이지만 연결에 문제가 있는 경우
       if (this.state.online) {
         globalErrorHandler.handleError(error as Error, {
           component: 'NetworkMonitor',
-          operation: 'connectivity-check'
+          operation: 'connectivity-check',
         });
       }
     }
@@ -184,33 +186,51 @@ export class NetworkMonitor {
    * 네트워크 품질 평가
    */
   getNetworkQuality(): 'excellent' | 'good' | 'fair' | 'poor' | 'offline' {
-    if (!this.state.online) return 'offline';
+    if (!this.state.online) {
+      return 'offline';
+    }
 
     const { effectiveType, rtt, downlink } = this.state;
 
     // RTT 기반 평가
     if (rtt !== undefined) {
-      if (rtt < 100) return 'excellent';
-      if (rtt < 300) return 'good';
-      if (rtt < 1000) return 'fair';
+      if (rtt < 100) {
+        return 'excellent';
+      }
+      if (rtt < 300) {
+        return 'good';
+      }
+      if (rtt < 1000) {
+        return 'fair';
+      }
       return 'poor';
     }
 
     // 연결 타입 기반 평가
     if (effectiveType) {
       switch (effectiveType) {
-        case '4g': return 'excellent';
-        case '3g': return 'good';
-        case '2g': return 'fair';
-        case 'slow-2g': return 'poor';
+        case '4g':
+          return 'excellent';
+        case '3g':
+          return 'good';
+        case '2g':
+          return 'fair';
+        case 'slow-2g':
+          return 'poor';
       }
     }
 
     // 다운링크 속도 기반 평가
     if (downlink !== undefined) {
-      if (downlink > 10) return 'excellent';
-      if (downlink > 1.5) return 'good';
-      if (downlink > 0.5) return 'fair';
+      if (downlink > 10) {
+        return 'excellent';
+      }
+      if (downlink > 1.5) {
+        return 'good';
+      }
+      if (downlink > 0.5) {
+        return 'fair';
+      }
       return 'poor';
     }
 
@@ -228,7 +248,7 @@ export class NetworkMonitor {
       case 'offline':
         recommendations.push('네트워크 연결을 확인해주세요');
         break;
-        
+
       case 'poor':
         recommendations.push('네트워크 상태가 좋지 않습니다');
         recommendations.push('폴링 간격을 늘려보세요');
@@ -236,11 +256,11 @@ export class NetworkMonitor {
           recommendations.push('데이터 절약 모드가 활성화되어 있습니다');
         }
         break;
-        
+
       case 'fair':
         recommendations.push('네트워크 상태가 보통입니다');
         break;
-        
+
       case 'good':
       case 'excellent':
         // 권장사항 없음
@@ -256,7 +276,7 @@ export class NetworkMonitor {
   addListener(listener: NetworkListener): () => void {
     this.listeners.add(listener);
     listener(this.state); // 현재 상태 즉시 전달
-    
+
     return () => {
       this.listeners.delete(listener);
     };
@@ -289,7 +309,7 @@ export class NetworkMonitor {
     try {
       await this.performConnectivityCheck();
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

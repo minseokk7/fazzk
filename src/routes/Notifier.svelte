@@ -1,16 +1,44 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { api } from '../lib/api.ts';
   import { push } from 'svelte-spa-router';
   import { WSClient } from '../lib/websocket.ts';
   import { SettingsManager } from '../lib/settingsManager.ts';
+  import {
+    detectOBSMode,
+    LOCAL_APP_HOST,
+    resolveRedirectorPath,
+    resolveServerUrls,
+  } from '../lib/notifier/bootstrap.ts';
+  import {
+    HISTORY_CLEANUP_INTERVAL,
+    HISTORY_MAX_SIZE,
+    addHistoryItem,
+    clearHistory as clearStoredHistory,
+    clampHistory,
+    formatHistoryTime,
+    loadHistory as loadStoredHistory,
+    loadKnownFollowers as loadStoredKnownFollowers,
+    saveHistory as persistHistory,
+    saveKnownFollowers as persistKnownFollowers,
+  } from '../lib/notifier/history.ts';
+  import {
+    createDirectTestFollower,
+    enqueueUniqueFollower,
+    enqueueUniqueFollowers,
+    hasQueuedFollower,
+    trimQueue,
+  } from '../lib/notifier/queue.ts';
+  import {
+    startLegacySettingsSync,
+    startManagedSettingsSync,
+  } from '../lib/notifier/settingsSync.ts';
 
   // Component imports
   import SessionBanner from '../components/SessionBanner.svelte';
   import NotificationArea from '../components/NotificationArea.svelte';
   import BottomNavigation from '../components/BottomNavigation.svelte';
-  import SettingsModal from '../components/SettingsModal.svelte';
-  import HistoryModal from '../components/HistoryModal.svelte';
   import KeyboardHelpModal from '../components/KeyboardHelpModal.svelte';
   import MemoryIndicator from '../components/MemoryIndicator.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
@@ -18,17 +46,17 @@
   // Toast system
   import { toastManager } from '../lib/toastManager.ts';
   import { loadingManager } from '../lib/loadingManager.ts';
+  import { memoryMonitor } from '../lib/memoryMonitor.ts';
 
   // State
-  let baseUrl = 'http://localhost:3000';
-  let obsUrl = $state('http://localhost:3000/follower');
+  let baseUrl = `http://${LOCAL_APP_HOST}:3001`;
+  let obsUrl = $state(`http://${LOCAL_APP_HOST}:3001/follower`);
 
   let currentItem = $state(null);
   let queue = [];
-  let knownFollowers = new Set();
+  let knownFollowers = new SvelteSet();
   let isProcessing = false;
   let audio; // Ref for notification sound
-  let ttsAudio; // Ref for TTS audio
   let isFetching = false;
   let isInitialized = false;
   let appStartedAt = Date.now();
@@ -101,11 +129,6 @@
     toastManager.warning(title, message);
   }
 
-  function showUserInfo(title, message) {
-    console.log('[Info]', title, ':', message);
-    toastManager.info(title, message);
-  }
-
   // 네트워크 에러 처리
   function handleNetworkError(error, context = '') {
     console.error(`[Network Error] ${context}:`, error);
@@ -123,19 +146,12 @@
       toastManager.error('연결 오류', `${context} 중 오류가 발생했습니다.`);
     }
   }
-  const HISTORY_MAX_SIZE = 50;
-  const HISTORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5분마다 정리
-  const HISTORY_STORAGE_KEY = 'alarmHistory';
-
-  // 히스토리 정리 함수
   function cleanupHistory() {
     try {
       if (history.length > HISTORY_MAX_SIZE) {
         const oldLength = history.length;
-        history = history.slice(0, HISTORY_MAX_SIZE);
+        history = clampHistory(history);
         console.log(`[History] Cleaned up: ${oldLength} -> ${history.length} items`);
-
-        // 즉시 저장
         saveHistoryToStorage();
       }
     } catch (error) {
@@ -143,111 +159,67 @@
     }
   }
 
-  // 히스토리 저장 함수 (중복 제거)
   function saveHistoryToStorage() {
     try {
-      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+      persistHistory(history);
       console.log(`[History] Saved ${history.length} items to storage`);
     } catch (error) {
       console.error('[History] Failed to save to storage:', error);
-      // 저장 실패 시 메모리에서라도 크기 제한
       if (history.length > HISTORY_MAX_SIZE * 2) {
-        history = history.slice(0, HISTORY_MAX_SIZE);
+        history = clampHistory(history);
         console.log('[History] Emergency memory cleanup performed');
       }
     }
   }
 
-  // 주기적 히스토리 정리 시작
   function startHistoryCleanup() {
     if (historyCleanupIntervalId) {
       clearInterval(historyCleanupIntervalId);
     }
 
-    historyCleanupIntervalId = setInterval(() => {
-      cleanupHistory();
-    }, HISTORY_CLEANUP_INTERVAL);
-
+    historyCleanupIntervalId = setInterval(cleanupHistory, HISTORY_CLEANUP_INTERVAL);
     console.log('[History] Cleanup scheduler started');
   }
 
-  // 팔로워 히스토리 관리
-  const KNOWN_FOLLOWERS_KEY = 'fazzk-known-followers-v2';
-
   function saveKnownFollowers() {
     try {
-      // 루블리스가 혹시 포함되어 있다면 제거
-      const followersArray = Array.from(knownFollowers);
-
-      const data = {
-        followers: followersArray,
-        lastSaved: Date.now(),
-        appStartTime: appStartedAt,
-      };
-      localStorage.setItem(KNOWN_FOLLOWERS_KEY, JSON.stringify(data));
+      persistKnownFollowers(knownFollowers, appStartedAt);
       console.log(`[Storage] Saved ${knownFollowers.size} known followers (루블리스 excluded)`);
-    } catch (e) {
-      console.error('[Storage] Failed to save known followers:', e);
+    } catch (error) {
+      console.error('[Storage] Failed to save known followers:', error);
     }
   }
 
   function loadKnownFollowers() {
     try {
-      const saved = localStorage.getItem(KNOWN_FOLLOWERS_KEY);
-      if (saved) {
-        const data = JSON.parse(saved);
-
-        // 7일 이상 된 데이터는 무시 (너무 오래된 데이터 방지)
-        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        if (data.lastSaved && data.lastSaved > sevenDaysAgo) {
-          // 루블리스는 known followers에서 완전히 제외
-          const followersWithoutRublis = data.followers.filter(hash => {
-            // 루블리스의 해시는 "f2f551b67556276caa1f590604a7d92a"이므로 제외
-            return hash !== 'f2f551b67556276caa1f590604a7d92a';
-          });
-
-          knownFollowers = new Set(followersWithoutRublis);
-          console.log(
-            `[Storage] Loaded ${knownFollowers.size} known followers from storage (루블리스 excluded)`
-          );
-          console.log(
-            `[Storage] Original count: ${data.followers.length}, After excluding 루블리스: ${followersWithoutRublis.length}`
-          );
-          return data.lastSaved;
-        } else {
-          console.log('[Storage] Stored data too old, starting fresh');
-        }
+      const { followers, lastSaved } = loadStoredKnownFollowers();
+      if (followers.length > 0 && lastSaved) {
+        knownFollowers = new SvelteSet(followers);
+        console.log(
+          `[Storage] Loaded ${knownFollowers.size} known followers from storage (루블리스 excluded)`
+        );
+        return lastSaved;
       }
-    } catch (e) {
-      console.error('[Storage] Failed to load known followers:', e);
+    } catch (error) {
+      console.error('[Storage] Failed to load known followers:', error);
     }
     return null;
   }
 
   // Initialize
   // 동적 사용자 경로 생성
-  let userPath = $state('');
+  let userPath = $state(null);
 
   onMount(async () => {
     // 사용자 경로 동적 생성
     if (api.isTauri) {
       try {
         const appDir = await api.invoke('get_app_dir');
-        userPath = `file:///${appDir}/scripts/obs-redirector.html`.replace(/\\/g, '/');
+        userPath = resolveRedirectorPath(appDir);
       } catch (error) {
         console.error('Failed to get app directory:', error);
-        // 폴백: 현재 사용자 이름 추정
-        const username = navigator.userAgent.includes('Windows')
-          ? window.location.pathname.includes('/Users/')
-            ? window.location.pathname.split('/Users/')[1]?.split('/')[0] || 'USER'
-            : 'USER'
-          : 'USER';
-        userPath = `file:///C:/Users/${username}/Desktop/Development/fazzk-dev/scripts/obs-redirector.html`;
+        userPath = null;
       }
-    } else {
-      // 브라우저 환경에서는 현재 사용자 추정
-      const username = 'USER'; // 브라우저에서는 정확한 사용자명을 알 수 없음
-      userPath = `file:///C:/Users/${username}/Desktop/Development/fazzk-dev/scripts/obs-redirector.html`;
     }
 
     appStartedAt = Date.now();
@@ -257,14 +229,13 @@
     setupKeyboardShortcuts();
 
     // OBS 모드 감지 (서버에서 설정한 플래그 또는 URL 기반)
-    const isOBSMode =
-      window.OBS_MODE ||
-      window.DIRECT_NOTIFIER_MODE ||
-      (!api.isTauri &&
-        (window.location.pathname === '/follower' ||
-          window.location.pathname.endsWith('/follower') ||
-          window.location.hash === '#/notifier' ||
-          window.location.hash === '#/follower'));
+    const isOBSMode = detectOBSMode({
+      isTauri: api.isTauri,
+      pathname: window.location.pathname,
+      hash: window.location.hash,
+      obsMode: window.OBS_MODE,
+      directNotifierMode: window.DIRECT_NOTIFIER_MODE,
+    });
 
     console.log('[초기화] OBS 모드 감지 결과:', isOBSMode);
     console.log('[초기화] 현재 URL:', window.location.href);
@@ -286,9 +257,11 @@
         console.error('[초기화] 로딩 상태 정리 실패:', error);
       }
 
-      // OBS 모드에서는 기본 포트 사용
-      baseUrl = window.location.origin;
-      obsUrl = `${baseUrl}/follower`;
+      ({ baseUrl, obsUrl } = resolveServerUrls({
+        isTauri: api.isTauri,
+        isOBSMode,
+        origin: window.location.origin,
+      }));
       console.log('[알림기] OBS 모드 - 기본 URL:', baseUrl);
     } else {
       console.log('[초기화] Tauri 모드 감지됨 - 전체 기능 활성화');
@@ -301,8 +274,12 @@
         const port = await api.getServerPort();
         console.log('[알림기] 서버에서 반환된 포트:', port, typeof port);
 
-        baseUrl = `http://localhost:${port}`;
-        obsUrl = `http://localhost:${port}/follower`;
+        ({ baseUrl, obsUrl } = resolveServerUrls({
+          isTauri: api.isTauri,
+          isOBSMode,
+          origin: window.location.origin,
+          port,
+        }));
         console.log('[알림기] 동적 포트 사용 (Tauri):', port);
         console.log('[알림기] 기본 URL 설정:', baseUrl);
         console.log('[알림기] OBS URL 설정:', obsUrl);
@@ -509,18 +486,6 @@
       audio.src = '';
       audio.load();
       console.log('[Cleanup] Audio element cleared');
-    }
-
-    // Clear TTS audio element
-    if (ttsAudio) {
-      ttsAudio.pause();
-      if (ttsAudio.src && ttsAudio.src.startsWith('blob:')) {
-        URL.revokeObjectURL(ttsAudio.src);
-      }
-      ttsAudio.src = '';
-      ttsAudio.load();
-      ttsAudio = null;
-      console.log('[Cleanup] TTS audio element cleared');
     }
 
     // Clear queues and state
@@ -1017,10 +982,11 @@
         follower.user.nickname
       );
       // 루블리스는 known followers 체크 없이 바로 큐에 추가
-      queue.push(follower);
-      console.log('[WebSocket] Added to notification queue:', follower.user.nickname);
-      console.log('[WebSocket] Current queue length:', queue.length);
-      processQueue();
+      if (enqueueUniqueFollower(queue, follower)) {
+        console.log('[WebSocket] Added to notification queue:', follower.user.nickname);
+        console.log('[WebSocket] Current queue length:', queue.length);
+        processQueue();
+      }
       return;
     }
 
@@ -1065,24 +1031,23 @@
     }
 
     // 큐에 추가
-    queue.push(follower);
-    console.log('[WebSocket] Added to notification queue:', follower.user.nickname);
-    console.log('[WebSocket] Current queue length:', queue.length);
-
-    // 즉시 처리
-    processQueue();
+    if (enqueueUniqueFollower(queue, follower)) {
+      console.log('[WebSocket] Added to notification queue:', follower.user.nickname);
+      console.log('[WebSocket] Current queue length:', queue.length);
+      processQueue();
+    }
   }
 
   // WebSocket에서 테스트 알림 처리
   function handleTestNotificationFromWS(follower) {
     // 중복 확인
-    if (queue.some(q => q.user.userIdHash === follower.user.userIdHash)) {
+    if (hasQueuedFollower(queue, follower.user.userIdHash)) {
       console.log('[WebSocket] Test follower already in queue, skipping:', follower.user.nickname);
       return;
     }
 
     // 큐에 추가
-    queue.push(follower);
+    enqueueUniqueFollower(queue, follower);
     console.log('[WebSocket] Added test notification to queue:', follower.user.nickname);
 
     // 즉시 처리
@@ -1423,7 +1388,7 @@
           // Only add to notification queue if they're a new follower
           if (!isOldFollower) {
             // Double-check they're not already in the queue to prevent duplicates
-            if (!queue.some(q => q.user.userIdHash === f.user.userIdHash)) {
+            if (!hasQueuedFollower(queue, f.user.userIdHash)) {
               validNewFollowers.push(f);
             }
           }
@@ -1431,7 +1396,7 @@
 
         // 배치로 큐에 추가
         if (validNewFollowers.length > 0) {
-          queue.push(...validNewFollowers);
+          enqueueUniqueFollowers(queue, validNewFollowers);
           console.log(`[Fetch] ✅ Added ${validNewFollowers.length} followers to queue`);
           console.log(
             `[Fetch] Queue contents:`,
@@ -1639,253 +1604,6 @@
       return;
     }
 
-    if (!('speechSynthesis' in window)) {
-      console.warn('[TTS] Speech synthesis not supported in this browser');
-      return;
-    }
-
-    try {
-      const synth = window.speechSynthesis;
-
-      // 기존 발화 중단
-      if (synth.speaking) {
-        console.log('[TTS] Cancelling previous speech');
-        synth.cancel();
-      }
-
-      // OBS에서 TTS 작동을 위한 특별 처리
-      const isOBSMode = !!(
-        window.OBS_MODE ||
-        window.DIRECT_NOTIFIER_MODE ||
-        document.body?.classList.contains('obs-mode')
-      );
-
-      if (isOBSMode) {
-        console.log('[TTS] OBS mode detected - applying OBS-specific TTS fixes');
-
-        // OBS에서 TTS 활성화를 위한 여러 시도
-        enableTTSInOBS()
-          .then(() => {
-            performTTS(text, synth);
-          })
-          .catch(() => {
-            console.warn('[TTS] OBS TTS enablement failed, trying direct approach');
-            performTTS(text, synth);
-          });
-      } else {
-        // 일반 브라우저에서는 바로 실행
-        performTTS(text, synth);
-      }
-    } catch (ttsError) {
-      console.error('[TTS] Failed to initialize speech synthesis:', ttsError);
-    }
-  }
-
-  // HTML Audio 요소를 사용한 TTS (OBS 호환)
-  async function speakWithAudio(text) {
-    try {
-      console.log('[TTS-Audio] Starting TTS generation for:', text);
-      console.log('[TTS-Audio] Base URL:', baseUrl);
-
-      // 서버에 TTS 요청
-      const ttsUrl = `${baseUrl}/tts`;
-      console.log('[TTS-Audio] Making request to:', ttsUrl);
-
-      const response = await fetch(ttsUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: `${text}님이 팔로우했습니다.`,
-        }),
-      });
-
-      console.log('[TTS-Audio] Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[TTS-Audio] API error response:', errorText);
-        throw new Error(`TTS API failed: ${response.status} - ${errorText}`);
-      }
-
-      // 오디오 데이터를 Blob으로 받기
-      const audioBlob = await response.blob();
-      console.log(
-        '[TTS-Audio] Audio blob received, size:',
-        audioBlob.size,
-        'type:',
-        audioBlob.type
-      );
-
-      if (audioBlob.size === 0) {
-        throw new Error('Received empty audio blob');
-      }
-
-      const audioUrl = URL.createObjectURL(audioBlob);
-      console.log('[TTS-Audio] Audio URL created:', audioUrl);
-
-      // 알림음 재생 후 TTS 재생 (오디오 컨텍스트 활성화)
-      await playTTSWithAudioContext(audioUrl, text);
-    } catch (error) {
-      console.error('[TTS-Audio] Failed to generate/play TTS:', error);
-      console.error('[TTS-Audio] Error stack:', error.stack);
-
-      // 폴백: 기존 Speech Synthesis API 시도
-      console.log('[TTS-Audio] Falling back to Speech Synthesis API');
-      speakWithSynthesis(text);
-    }
-  }
-
-  // 오디오 컨텍스트를 활용한 TTS 재생
-  async function playTTSWithAudioContext(audioUrl, text) {
-    try {
-      // 방법 1: 알림음과 함께 재생 (오디오 컨텍스트 공유)
-      if (audio && audio.src) {
-        console.log('[TTS-Audio] Using notification audio context');
-
-        // 알림음을 매우 낮은 볼륨으로 재생 (오디오 컨텍스트 활성화)
-        const originalVolume = audio.volume;
-        audio.volume = 0.01; // 거의 들리지 않게
-
-        try {
-          await audio.play();
-          console.log('[TTS-Audio] Notification audio played for context activation');
-
-          // 즉시 정지
-          audio.pause();
-          audio.currentTime = 0;
-          audio.volume = originalVolume;
-
-          // 이제 TTS 재생
-          await playTTSAudio(audioUrl, text);
-        } catch (e) {
-          console.warn('[TTS-Audio] Notification audio failed, trying direct TTS');
-          audio.volume = originalVolume;
-          await playTTSAudio(audioUrl, text);
-        }
-      } else {
-        // 알림음이 없으면 직접 재생
-        await playTTSAudio(audioUrl, text);
-      }
-    } catch (error) {
-      console.error('[TTS-Audio] Audio context method failed:', error);
-      URL.revokeObjectURL(audioUrl);
-      throw error;
-    }
-  }
-
-  // 실제 TTS 오디오 재생
-  async function playTTSAudio(audioUrl, text) {
-    return new Promise((resolve, reject) => {
-      // TTS 전용 audio 요소가 없으면 생성
-      if (!ttsAudio) {
-        ttsAudio = document.createElement('audio');
-        ttsAudio.preload = 'auto';
-        console.log('[TTS-Audio] TTS audio element created');
-      }
-
-      // 이전 URL 정리
-      if (ttsAudio.src && ttsAudio.src.startsWith('blob:')) {
-        URL.revokeObjectURL(ttsAudio.src);
-        console.log('[TTS-Audio] Previous blob URL revoked');
-      }
-
-      // 새 오디오 설정
-      ttsAudio.src = audioUrl;
-      ttsAudio.volume = Math.max(0.1, Math.min(1.0, volume));
-      console.log('[TTS-Audio] Audio configured, volume:', ttsAudio.volume);
-
-      // 재생 이벤트 핸들러
-      ttsAudio.onloadeddata = () => {
-        console.log('[TTS-Audio] ✅ Audio loaded successfully, duration:', ttsAudio.duration);
-      };
-
-      ttsAudio.onplay = () => {
-        console.log('[TTS-Audio] ✅ TTS playback started for:', text);
-      };
-
-      ttsAudio.onended = () => {
-        console.log('[TTS-Audio] ✅ TTS playback completed for:', text);
-        URL.revokeObjectURL(audioUrl);
-        resolve();
-      };
-
-      ttsAudio.onerror = e => {
-        console.error('[TTS-Audio] ❌ TTS playback failed:', e);
-        console.error('[TTS-Audio] Audio error details:', ttsAudio.error);
-        URL.revokeObjectURL(audioUrl);
-        reject(new Error(`TTS playback failed: ${ttsAudio.error?.message || 'Unknown error'}`));
-      };
-
-      // 재생 시작
-      console.log('[TTS-Audio] Attempting to play TTS audio...');
-      ttsAudio
-        .play()
-        .then(() => {
-          console.log('[TTS-Audio] 🎤 TTS audio playback initiated successfully');
-        })
-        .catch(playError => {
-          console.error('[TTS-Audio] Play promise rejected:', playError);
-
-          // 사용자 상호작용 시뮬레이션 후 재시도
-          console.log('[TTS-Audio] Trying user interaction simulation...');
-          simulateUserInteraction()
-            .then(() => {
-              return ttsAudio.play();
-            })
-            .then(() => {
-              console.log(
-                '[TTS-Audio] 🎤 TTS audio playback succeeded after interaction simulation'
-              );
-            })
-            .catch(finalError => {
-              console.error('[TTS-Audio] Final play attempt failed:', finalError);
-              reject(finalError);
-            });
-        });
-    });
-  }
-
-  // 사용자 상호작용 시뮬레이션
-  async function simulateUserInteraction() {
-    return new Promise(resolve => {
-      console.log('[TTS-Audio] Simulating user interaction...');
-
-      // 다양한 이벤트 시뮬레이션
-      const events = ['click', 'touchstart', 'keydown', 'mousedown', 'pointerdown'];
-      events.forEach(eventType => {
-        const event = new Event(eventType, {
-          bubbles: true,
-          cancelable: true,
-          isTrusted: false, // 명시적으로 false로 설정
-        });
-        document.dispatchEvent(event);
-        document.body?.dispatchEvent(event);
-      });
-
-      // 실제 DOM 요소 클릭 시뮬레이션
-      const hiddenButton = document.createElement('button');
-      hiddenButton.style.position = 'absolute';
-      hiddenButton.style.left = '-9999px';
-      hiddenButton.style.opacity = '0';
-      hiddenButton.style.pointerEvents = 'none';
-      document.body.appendChild(hiddenButton);
-
-      // 실제 클릭
-      hiddenButton.click();
-      hiddenButton.focus();
-
-      // 정리
-      setTimeout(() => {
-        document.body.removeChild(hiddenButton);
-        resolve();
-      }, 100);
-    });
-  }
-
-  // 기존 Speech Synthesis API (폴백용)
-  function speakWithSynthesis(text) {
     if (!('speechSynthesis' in window)) {
       console.warn('[TTS] Speech synthesis not supported in this browser');
       return;
@@ -2251,21 +1969,9 @@
 
   function addHistory(item) {
     try {
-      const historyItem = {
-        ...item,
-        _id: Date.now() + Math.random().toString(36).substr(2, 9),
-        notifiedAt: new Date().toISOString(),
-      };
-
-      console.log('[History] Adding item:', historyItem.user.nickname);
-
-      // Add to beginning with strict size limit
-      history = [historyItem, ...history.slice(0, HISTORY_MAX_SIZE - 1)];
-
-      // 비동기로 저장하여 UI 블로킹 방지
-      setTimeout(() => {
-        saveHistoryToStorage();
-      }, 0);
+      history = addHistoryItem(history, item);
+      console.log('[History] Adding item:', item.user.nickname);
+      setTimeout(saveHistoryToStorage, 0);
     } catch (error) {
       console.error('[History] Failed to add history item:', error);
     }
@@ -2275,38 +1981,15 @@
     console.log('[History] Loading history from local storage');
 
     try {
-      const s = localStorage.getItem(HISTORY_STORAGE_KEY);
-      if (s) {
-        const parsedHistory = JSON.parse(s);
-
-        // Validate that it's an array
-        if (Array.isArray(parsedHistory)) {
-          // Ensure we don't exceed maximum size
-          history = parsedHistory.slice(0, HISTORY_MAX_SIZE);
-          console.log(`[History] Loaded ${history.length} items from storage`);
-
-          // If we had to truncate, save the truncated version back
-          if (parsedHistory.length > HISTORY_MAX_SIZE) {
-            console.log(
-              `[History] Truncated from ${parsedHistory.length} to ${HISTORY_MAX_SIZE} items`
-            );
-            saveHistoryToStorage();
-          }
-        } else {
-          console.warn('[History] Invalid history format in storage, resetting');
-          history = [];
-        }
-      } else {
-        console.log('[History] No history found in storage');
-        history = [];
-      }
+      history = loadStoredHistory();
+      console.log(`[History] Loaded ${history.length} items from storage`);
     } catch (error) {
       console.error('[History] Failed to load history from storage:', error);
       history = [];
 
       // Try to clear corrupted data
       try {
-        localStorage.removeItem(HISTORY_STORAGE_KEY);
+        clearStoredHistory();
         console.log('[History] Cleared corrupted history data');
       } catch (clearError) {
         console.error('[History] Failed to clear corrupted data:', clearError);
@@ -2317,12 +2000,10 @@
   function clearHistory() {
     console.log('[History] Clearing all history');
 
-    // Clear from memory
     history = [];
 
-    // Clear from local storage
     try {
-      localStorage.removeItem(HISTORY_STORAGE_KEY);
+      clearStoredHistory();
       console.log('[History] Successfully cleared from storage');
     } catch (error) {
       console.error('[History] Failed to clear from storage:', error);
@@ -2330,24 +2011,7 @@
   }
 
   function formatTime(iso) {
-    if (!iso) return '-';
-    try {
-      const date = new Date(iso);
-      if (isNaN(date.getTime())) {
-        return '-';
-      }
-
-      return date.toLocaleString('ko-KR', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
-    } catch (error) {
-      console.error('[History] Failed to format timestamp:', error);
-      return '-';
-    }
+    return formatHistoryTime(iso);
   }
 
   function testAlarm() {
@@ -2427,21 +2091,12 @@
   }
 
   function createDirectTestAlarm() {
-    const now = Date.now();
-    const testFollower = {
-      user: {
-        userIdHash: `test_${now}`,
-        nickname: '테스트 유저',
-        profileImageUrl: '/default_profile.png',
-      },
-      followingSince: new Date().toISOString(),
-    };
+    const testFollower = createDirectTestFollower();
 
     console.log('[TestAlarm] Creating direct test notification:', testFollower.user.nickname);
 
     // 큐에 직접 추가 (중복 확인)
-    if (!queue.some(q => q.user.userIdHash === testFollower.user.userIdHash)) {
-      queue.push(testFollower);
+    if (enqueueUniqueFollower(queue, testFollower)) {
       console.log('[TestAlarm] Test follower added to queue');
 
       // 즉시 처리
@@ -2452,17 +2107,25 @@
   }
 
   function copyOBSUrl() {
-    const url = `http://localhost:${baseUrl.split(':')[2]}/follower`;
+    const url = obsUrl;
+    const port = new URL(baseUrl).port;
     navigator.clipboard.writeText(url);
 
     showUserSuccess('URL 복사 완료', 'OBS URL이 클립보드에 복사되었습니다.', {
-      message: `현재 포트: ${baseUrl.split(':')[2]}\nOBS URL: ${url}\n\n💡 팁: 포트가 변경되면 이 URL도 업데이트됩니다.`,
+      message: `현재 포트: ${port}\nOBS URL: ${url}\n\n💡 팁: 포트가 변경되면 이 URL도 업데이트됩니다.`,
     });
   }
 
   function copyRedirectorPath() {
-    // 동적으로 생성된 경로 사용
-    const pathToCopy = userPath || 'scripts/obs-redirector.html';
+    if (!userPath) {
+      showUserWarning(
+        '경로 준비 안됨',
+        '리다이렉터 파일 경로를 아직 확인하지 못했습니다. 잠시 후 다시 시도해주세요.'
+      );
+      return;
+    }
+
+    const pathToCopy = userPath;
     navigator.clipboard.writeText(pathToCopy);
 
     showUserSuccess('경로 복사 완료', '리다이렉터 파일 경로가 클립보드에 복사되었습니다.', {
@@ -2484,9 +2147,7 @@
 
     try {
       // 1. 메모리 모니터의 정리 기능 호출
-      import('../lib/memoryMonitor.ts').then(({ memoryMonitor }) => {
-        memoryMonitor.manualCleanup();
-      });
+      memoryMonitor.manualCleanup();
 
       // 2. 앱별 정리 로직 실행
       const cleanupResult = triggerAppCleanup();
@@ -2534,22 +2195,26 @@
         });
       }
 
-      return {
-        cleanedImages,
-        cleanedHistory,
-      };
-
       // 4. 큐 정리
       if (queue.length > 10) {
-        queue = queue.slice(0, 10);
+        queue = trimQueue(queue, 10);
       }
 
       console.log(`[MemoryCleanup] App cleanup completed:
         - Images cleaned: ${cleanedImages}
         - History items: ${originalHistoryLength} → ${history.length}
         - Queue items: ${queue.length}`);
+
+      return {
+        cleanedImages,
+        cleanedHistory,
+      };
     } catch (error) {
       console.error('[MemoryCleanup] Error during app cleanup:', error);
+      return {
+        cleanedImages: 0,
+        cleanedHistory: 0,
+      };
     }
   }
 
@@ -2682,6 +2347,10 @@
     // WebSocket이 연결되어 있으면 WebSocket 기반 동기화만 사용
     if (wsConnected) {
       console.log('[SettingsSync] Using WebSocket-based settings sync');
+      if (settingsSyncIntervalId) {
+        clearInterval(settingsSyncIntervalId);
+        settingsSyncIntervalId = null;
+      }
       return; // WebSocket 이벤트로 실시간 동기화됨
     }
 
@@ -2691,20 +2360,14 @@
     // 중앙화된 설정 관리자가 있으면 사용
     if (settingsManager) {
       console.log('[SettingsSync] Using centralized settings manager for sync');
-
-      // 30초마다 서버에서 설정 다시 로드
-      if (settingsSyncIntervalId) {
-        clearInterval(settingsSyncIntervalId);
-      }
-
-      settingsSyncIntervalId = setInterval(async () => {
-        try {
-          console.log('[SettingsSync] Syncing settings from server...');
-          await settingsManager.loadFromServer();
-        } catch (error) {
+      settingsSyncIntervalId = startManagedSettingsSync(
+        wsConnected,
+        settingsManager,
+        settingsSyncIntervalId,
+        error => {
           console.error('[SettingsSync] Failed to sync settings from server:', error);
         }
-      }, 30000);
+      );
 
       console.log('[SettingsSync] Centralized settings sync started (30s interval)');
       return;
@@ -2717,117 +2380,78 @@
 
   // 기존 설정 동기화 방식 (폴백용)
   function startSettingsSyncLegacy() {
-    let lastSettingsHash = null;
-    let syncInProgress = false;
+    settingsSyncIntervalId = startLegacySettingsSync(
+      baseUrl,
+      settingsSyncIntervalId,
+      serverSettings => {
+        const params = new URLSearchParams(window.location.search);
+        let settingsChanged = false;
 
-    const syncSettings = async () => {
-      // 이미 동기화 중이면 스킵
-      if (syncInProgress) {
-        return;
-      }
+        const settingsToUpdate = [
+          { key: 'volume', param: 'volume', current: volume },
+          { key: 'displayDuration', param: 'displayDuration', current: displayDuration },
+          { key: 'animationType', param: 'animationType', current: animationType },
+          {
+            key: 'notificationLayout',
+            param: 'notificationLayout',
+            current: notificationLayout,
+          },
+          { key: 'textColor', param: 'textColor', current: textColor },
+          { key: 'textSize', param: 'textSize', current: textSize },
+        ];
 
-      syncInProgress = true;
-
-      try {
-        const res = await fetch(`${baseUrl}/settings?_t=${Date.now()}`);
-        if (res.ok) {
-          const serverSettings = await res.json();
-          const currentHash = JSON.stringify(serverSettings);
-
-          // 설정이 변경되었는지 확인 (해시 비교로 성능 최적화)
-          if (lastSettingsHash !== null && lastSettingsHash !== currentHash) {
-            console.log('[SettingsSync] Settings changed, updating...');
-
-            // 설정 업데이트 (URL 파라미터가 없는 경우만)
-            const params = new URLSearchParams(window.location.search);
-
-            let settingsChanged = false;
-            const settingsToUpdate = [
-              { key: 'volume', param: 'volume', current: volume },
-              { key: 'displayDuration', param: 'displayDuration', current: displayDuration },
-              { key: 'animationType', param: 'animationType', current: animationType },
-              {
-                key: 'notificationLayout',
-                param: 'notificationLayout',
-                current: notificationLayout,
-              },
-              { key: 'textColor', param: 'textColor', current: textColor },
-              { key: 'textSize', param: 'textSize', current: textSize },
-            ];
-
-            // 배치 업데이트로 성능 최적화
-            settingsToUpdate.forEach(({ key, param, current }) => {
-              if (
-                !params.has(param) &&
-                serverSettings[key] !== undefined &&
-                current !== serverSettings[key]
-              ) {
-                switch (key) {
-                  case 'volume':
-                    volume = serverSettings[key];
-                    break;
-                  case 'displayDuration':
-                    displayDuration = serverSettings[key];
-                    break;
-                  case 'animationType':
-                    animationType = serverSettings[key];
-                    break;
-                  case 'notificationLayout':
-                    notificationLayout = serverSettings[key];
-                    break;
-                  case 'textColor':
-                    textColor = serverSettings[key];
-                    break;
-                  case 'textSize':
-                    textSize = serverSettings[key];
-                    break;
-                }
-                settingsChanged = true;
-                console.log(`[SettingsSync] Updated ${key}:`, serverSettings[key]);
-              }
-            });
-
-            // 테스트 닉네임 동기화
-            if (
-              serverSettings.testNickname !== undefined &&
-              serverSettings.testNickname !== testNickname
-            ) {
-              testNickname = serverSettings.testNickname;
-              console.log('[SettingsSync] Updated testNickname:', testNickname);
-            }
-
-            // 스타일 재적용 (설정이 변경된 경우만)
-            if (settingsChanged) {
-              applyStyles();
-              console.log('[SettingsSync] Settings synchronized and styles applied');
-            }
-          } else if (lastSettingsHash === null) {
-            // 초기 로드 시에도 설정 적용
-            console.log('[SettingsSync] Initial settings sync');
-            applyStyles();
+        settingsToUpdate.forEach(({ key, param, current }) => {
+          const nextValue = serverSettings[key];
+          if (params.has(param) || nextValue === undefined || current === nextValue) {
+            return;
           }
 
-          lastSettingsHash = currentHash;
-        } else {
-          console.warn('[SettingsSync] Failed to fetch settings, status:', res.status);
+          switch (key) {
+            case 'volume':
+              volume = nextValue;
+              break;
+            case 'displayDuration':
+              displayDuration = nextValue;
+              break;
+            case 'animationType':
+              animationType = nextValue;
+              break;
+            case 'notificationLayout':
+              notificationLayout = nextValue;
+              break;
+            case 'textColor':
+              textColor = nextValue;
+              break;
+            case 'textSize':
+              textSize = nextValue;
+              break;
+          }
+
+          settingsChanged = true;
+          console.log(`[SettingsSync] Updated ${key}:`, nextValue);
+        });
+
+        if (
+          serverSettings.testNickname !== undefined &&
+          serverSettings.testNickname !== testNickname
+        ) {
+          testNickname = serverSettings.testNickname;
+          console.log('[SettingsSync] Updated testNickname:', testNickname);
         }
-      } catch (e) {
-        console.error('[SettingsSync] Failed to sync settings:', e);
-      } finally {
-        syncInProgress = false;
+
+        if (settingsChanged) {
+          applyStyles();
+          console.log('[SettingsSync] Settings synchronized and styles applied');
+          return;
+        }
+
+        console.log('[SettingsSync] Initial settings sync');
+        applyStyles();
+      },
+      error => {
+        console.error('[SettingsSync] Failed to sync settings:', error);
       }
-    };
-
-    // 초기 설정 해시 저장
-    syncSettings();
-
-    // Clear existing interval
-    if (settingsSyncIntervalId) {
-      clearInterval(settingsSyncIntervalId);
-    }
-
-    // 30초마다 설정 동기화 확인 (WebSocket 폴백용으로 간격 늘림)
-    settingsSyncIntervalId = setInterval(syncSettings, 30000);
+    );
     console.log('[SettingsSync] Fallback settings sync started (30s interval)');
   }
 </script>

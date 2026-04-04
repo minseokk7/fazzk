@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Fazzk Login Helper",
-    "version": "1.3",
+    "version": "3.0.0",
     "description": "Automatically syncs Naver cookies to Fazzk app",
     "permissions": [
         "cookies",

@@ -1,11 +1,11 @@
 <script>
   import VirtualList from './VirtualList.svelte';
   import LazyImage from './LazyImage.svelte';
-  
+
   export let showHistory = false;
   export let history = [];
   export let clearHistory = () => {};
-  
+
   function formatTime(timestamp) {
     if (!timestamp) return '';
     const date = new Date(timestamp);
@@ -23,7 +23,7 @@
 
   // 컴포넌트 마운트 시 이벤트 리스너 등록
   import { onMount, onDestroy } from 'svelte';
-  
+
   onMount(() => {
     window.addEventListener('cleanup-history', handleCleanupHistory);
   });
@@ -35,39 +35,40 @@
 
 {#if showHistory}
   <!-- 배경 오버레이 -->
-  <div class="modal-overlay" 
-       role="button" 
-       tabindex="0"
-       aria-label="모달 닫기"
-       onclick={() => (showHistory = false)}
-       onkeydown={(e) => {
-         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-           e.preventDefault();
-           showHistory = false;
-         }
-       }}
+  <div
+    class="modal-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="모달 닫기"
+    onclick={() => (showHistory = false)}
+    onkeydown={e => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+        e.preventDefault();
+        showHistory = false;
+      }
+    }}
   ></div>
-  
+
   <!-- 모달 컨텐츠 -->
   <div class="history-modal">
     <div class="settings-header">
       <h2>알림 기록</h2>
       <button class="close-btn" onclick={() => (showHistory = false)}>×</button>
     </div>
-    
+
     <div class="history-list">
       {#if history.length === 0}
         <p class="empty-message">기록이 없습니다.</p>
       {:else}
-        <VirtualList 
-          items={history} 
-          itemHeight={64} 
+        <VirtualList
+          items={history}
+          itemHeight={64}
           containerHeight={Math.min(400, history.length * 64)}
           let:item
         >
           <div class="history-item">
-            <LazyImage 
-              src={item.user?.profileImageUrl || '/default_profile.png'} 
+            <LazyImage
+              src={item.user?.profileImageUrl || '/default_profile.png'}
               alt="Profile"
               className="profile-img"
               width="40"
@@ -81,7 +82,7 @@
         </VirtualList>
       {/if}
     </div>
-    
+
     {#if history.length > 0}
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick={clearHistory}>기록 지우기</button>

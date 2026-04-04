@@ -1,12 +1,21 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly DEV: boolean
-  readonly PROD: boolean
-  readonly MODE: string
-  // 필요한 다른 환경 변수들을 여기에 추가
+  readonly DEV: boolean;
+  readonly PROD: boolean;
+  readonly MODE: string;
 }
 
 interface ImportMeta {
-  readonly env: ImportMetaEnv
+  readonly env: ImportMetaEnv;
+}
+
+interface Window {
+  OBS_MODE?: boolean;
+  DIRECT_NOTIFIER_MODE?: boolean;
+  __TAURI_INTERNALS__?: unknown;
+  __TAURI__?: unknown;
+  testAlarmInProgress?: boolean;
+  toastManager?: unknown;
+  webkitAudioContext?: typeof AudioContext;
 }

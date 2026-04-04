@@ -24,7 +24,9 @@ class Logger {
   }
 
   private formatMessage(level: string, category: string, message: string, ...args: any[]): void {
-    if (!this.shouldLog(LogLevel[level as keyof typeof LogLevel])) return;
+    if (!this.shouldLog(LogLevel[level as keyof typeof LogLevel])) {
+      return;
+    }
 
     const timestamp = new Date().toISOString();
     const prefix = `[${category}]`;

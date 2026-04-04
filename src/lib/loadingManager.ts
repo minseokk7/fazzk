@@ -44,17 +44,16 @@ export class LoadingManager {
    * 로딩 시작
    */
   start(
-    id: string, 
-    message: string, 
+    id: string,
+    message: string,
     options?: Partial<Omit<LoadingState, 'id' | 'message' | 'startTime'>>
   ): void {
     // OBS 모드에서는 로딩 상태를 추가하지 않음
     const isOBSMode = !!(
-      (typeof window !== 'undefined') && (
-        (window as any).OBS_MODE ||
+      typeof window !== 'undefined' &&
+      ((window as any).OBS_MODE ||
         (window as any).DIRECT_NOTIFIER_MODE ||
-        document.body?.classList.contains('obs-mode')
-      )
+        document.body?.classList.contains('obs-mode'))
     );
 
     if (isOBSMode) {
@@ -68,12 +67,12 @@ export class LoadingManager {
       startTime: Date.now(),
       category: 'general',
       priority: 'medium',
-      ...options
+      ...options,
     };
 
     this.loadingStates.set(id, state);
     this.totalStarted++;
-    
+
     log.debug(`Loading started: ${id} - ${message}`);
     this.notifyListeners();
     this.notifyStatsListeners();
@@ -136,11 +135,11 @@ export class LoadingManager {
     }
 
     const duration = Date.now() - state.startTime;
-    
+
     // 완료된 작업 기록
     this.completedOperations.push({
       duration,
-      category: state.category || 'general'
+      category: state.category || 'general',
     });
 
     // 히스토리 크기 제한
@@ -149,7 +148,7 @@ export class LoadingManager {
     }
 
     this.loadingStates.delete(id);
-    
+
     log.debug(`Loading finished: ${id} (${duration}ms)`);
     this.notifyListeners();
     this.notifyStatsListeners();
@@ -183,20 +182,19 @@ export class LoadingManager {
    * 모든 로딩 상태 가져오기
    */
   getAllStates(): LoadingState[] {
-    return Array.from(this.loadingStates.values())
-      .sort((a, b) => {
-        // 우선순위별 정렬
-        const priorityOrder = { high: 3, medium: 2, low: 1 };
-        const aPriority = priorityOrder[a.priority || 'medium'];
-        const bPriority = priorityOrder[b.priority || 'medium'];
-        
-        if (aPriority !== bPriority) {
-          return bPriority - aPriority;
-        }
-        
-        // 시작 시간순 정렬
-        return a.startTime - b.startTime;
-      });
+    return Array.from(this.loadingStates.values()).sort((a, b) => {
+      // 우선순위별 정렬
+      const priorityOrder = { high: 3, medium: 2, low: 1 };
+      const aPriority = priorityOrder[a.priority || 'medium'];
+      const bPriority = priorityOrder[b.priority || 'medium'];
+
+      if (aPriority !== bPriority) {
+        return bPriority - aPriority;
+      }
+
+      // 시작 시간순 정렬
+      return a.startTime - b.startTime;
+    });
   }
 
   /**
@@ -244,21 +242,24 @@ export class LoadingManager {
     });
 
     // 평균 지속 시간 계산
-    const averageDuration = this.completedOperations.length > 0
-      ? this.completedOperations.reduce((sum, op) => sum + op.duration, 0) / this.completedOperations.length
-      : 0;
+    const averageDuration =
+      this.completedOperations.length > 0
+        ? this.completedOperations.reduce((sum, op) => sum + op.duration, 0) /
+          this.completedOperations.length
+        : 0;
 
     // 최장 지속 시간 계산
-    const longestDuration = this.completedOperations.length > 0
-      ? Math.max(...this.completedOperations.map(op => op.duration))
-      : 0;
+    const longestDuration =
+      this.completedOperations.length > 0
+        ? Math.max(...this.completedOperations.map(op => op.duration))
+        : 0;
 
     return {
       activeCount: activeStates.length,
       totalStarted: this.totalStarted,
       averageDuration: Math.round(averageDuration),
       longestDuration,
-      byCategory
+      byCategory,
     };
   }
 
@@ -268,10 +269,10 @@ export class LoadingManager {
   addListener(listener: LoadingListener): () => void {
     this.listeners.add(listener);
     log.debug('Loading listener added');
-    
+
     // 현재 상태 즉시 전달
     listener(this.getAllStates());
-    
+
     // 제거 함수 반환
     return () => {
       this.listeners.delete(listener);
@@ -285,10 +286,10 @@ export class LoadingManager {
   addStatsListener(listener: LoadingStatsListener): () => void {
     this.statsListeners.add(listener);
     log.debug('Loading stats listener added');
-    
+
     // 현재 통계 즉시 전달
     listener(this.getStats());
-    
+
     // 제거 함수 반환
     return () => {
       this.statsListeners.delete(listener);
@@ -361,9 +362,12 @@ export class LoadingManager {
    * 자동 정리 시작 (5분마다)
    */
   startAutoCleanup(): () => void {
-    const interval = setInterval(() => {
-      this.cleanup();
-    }, 5 * 60 * 1000);
+    const interval = setInterval(
+      () => {
+        this.cleanup();
+      },
+      5 * 60 * 1000
+    );
 
     log.info('Auto cleanup started');
 
@@ -378,7 +382,11 @@ export class LoadingManager {
 export const loadingManager = new LoadingManager();
 
 // 편의 함수들
-export const startLoading = (id: string, message: string, options?: Partial<Omit<LoadingState, 'id' | 'message' | 'startTime'>>) => {
+export const startLoading = (
+  id: string,
+  message: string,
+  options?: Partial<Omit<LoadingState, 'id' | 'message' | 'startTime'>>
+) => {
   loadingManager.start(id, message, options);
 };
 

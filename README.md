@@ -5,7 +5,7 @@
 
 ![Fazzk Icon](public/dodoroi_icon.png)
 
-## ✨ 주요 기능 (v2.0)
+## ✨ 주요 기능 (v3.0.0)
 
 *   **⚡ 초경량 & 고성능**: Tauri 2.0 기반으로 재설계되어 메모리 사용량을 획기적으로 줄였습니다.
 *   **🔔 실시간 알림**: 새 팔로워 감지 시 즉각적인 화면/소리 알림 (재팔로우 감지 포함)
@@ -16,7 +16,7 @@
 *   **📥 트레이 모드**: 창을 닫아도 시스템 트레이에서 백그라운드로 실행
 *   **🎨 강력한 커스터마이징**:
     *   **알림음**: 사용자가 보유한 MP3/WAV 파일 사용 가능
-    *   **테마**: 시스템 테마(다크/라이트) 자동 감지 및 수동 전환
+    *   **테마**: 다크 테마 기반 UI
     *   **애니메이션**: 페이드(Fade), 슬라이드(Slide), 바운스(Bounce) 등 다양한 효과
 
 ## 🚀 설치 및 실행
@@ -64,10 +64,11 @@ npm run tauri build
 
 ## 🛠 기술 스택
 
-*   **Frontend**: HTML, CSS, Alpine.js (Lightweight)
-*   **Backend**: Rust (Tauri 2.0)
-*   **Database**: `tauri-plugin-store` (설정 저장)
-*   **API**: `reqwest` (치지직 통신)
+*   **Frontend**: Svelte 5, TypeScript, Vite
+*   **Desktop Runtime**: Tauri 2.0
+*   **Backend**: Rust
+*   **State & Storage**: `tauri-plugin-store`, localStorage
+*   **Networking**: `reqwest`, WebSocket
 
 ## 📝 라이선스
 

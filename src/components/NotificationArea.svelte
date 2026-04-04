@@ -80,7 +80,7 @@
     flex: 1;
   }
 
-  .notification-container.layout-horizontal .profile-img {
+  :global(.notification-container.layout-horizontal img.profile-img) {
     width: 80px;
     height: 80px;
     margin-bottom: 0;
@@ -115,7 +115,7 @@
     box-sizing: border-box;
   }
 
-  .layout-vertical .profile-img {
+  :global(.notification-container.layout-vertical img.profile-img) {
     margin-right: 0;
     margin-bottom: 15px;
   }

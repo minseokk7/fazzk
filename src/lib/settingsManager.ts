@@ -14,13 +14,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   animationType: 'fade' as AnimationType,
   notificationLayout: 'vertical' as NotificationLayout,
   textColor: '#ffffff',
-  textSize: 100
+  textSize: 100,
 };
 
 // 설정 키 상수
 export const SETTINGS_KEYS = {
   STORAGE_KEY: 'fazzk-app-settings',
-  SERVER_ENDPOINT: '/settings'
+  SERVER_ENDPOINT: '/settings',
 } as const;
 
 // 설정 검증 규칙
@@ -31,7 +31,7 @@ export const SETTINGS_VALIDATION = {
   textSize: { min: 50, max: 200, step: 10 },
   animationType: ['fade', 'slide-up', 'slide-down', 'bounce'],
   notificationLayout: ['vertical', 'horizontal'],
-  textColor: /^#[0-9A-Fa-f]{6}$/
+  textColor: /^#[0-9A-Fa-f]{6}$/,
 } as const;
 
 // 설정 변경 이벤트 타입
@@ -51,7 +51,7 @@ export type SettingsChangeListener = (event: SettingsChangeEvent) => void;
 export class SettingsManager {
   private settings: AppSettings;
   private listeners: Set<SettingsChangeListener> = new Set();
-  private batchSaveTimeout: NodeJS.Timeout | null = null;
+  private batchSaveTimeout: ReturnType<typeof setTimeout> | null = null;
   private isDirty = false;
   private baseUrl = '';
 
@@ -78,8 +78,8 @@ export class SettingsManager {
    * 설정값 설정하기 (검증 포함)
    */
   set<K extends keyof AppSettings>(
-    key: K, 
-    value: AppSettings[K], 
+    key: K,
+    value: AppSettings[K],
     source: SettingsChangeEvent['source'] = 'user'
   ): boolean {
     // 값 검증
@@ -89,7 +89,7 @@ export class SettingsManager {
     }
 
     const oldValue = this.settings[key];
-    
+
     // 값이 실제로 변경되었는지 확인
     if (oldValue === value) {
       return true; // 변경되지 않았지만 성공으로 처리
@@ -104,7 +104,7 @@ export class SettingsManager {
       key,
       oldValue,
       newValue: value,
-      source
+      source,
     };
 
     this.notifyListeners(event);
@@ -120,7 +120,7 @@ export class SettingsManager {
    * 여러 설정을 한번에 설정
    */
   setMultiple(
-    settings: Partial<AppSettings>, 
+    settings: Partial<AppSettings>,
     source: SettingsChangeEvent['source'] = 'user'
   ): boolean {
     let allSuccess = true;
@@ -142,14 +142,14 @@ export class SettingsManager {
     for (const [key, value] of Object.entries(settings)) {
       const settingKey = key as keyof AppSettings;
       const oldValue = this.settings[settingKey];
-      
+
       if (oldValue !== value) {
         (this.settings as any)[settingKey] = value;
         changes.push({
           key: settingKey,
           oldValue,
           newValue: value,
-          source
+          source,
         });
       }
     }
@@ -157,14 +157,17 @@ export class SettingsManager {
     // 변경사항이 있는 경우에만 처리
     if (changes.length > 0) {
       this.isDirty = true;
-      
+
       // 모든 변경 이벤트 발생
       changes.forEach(event => this.notifyListeners(event));
-      
+
       // 배치 저장 스케줄링
       this.scheduleBatchSave();
-      
-      console.log(`[SettingsManager] Multiple settings changed:`, changes.map(c => c.key));
+
+      console.log(
+        `[SettingsManager] Multiple settings changed:`,
+        changes.map(c => c.key)
+      );
     }
 
     return true;
@@ -185,7 +188,7 @@ export class SettingsManager {
           key,
           oldValue: oldSettings[key],
           newValue: this.settings[key],
-          source: 'user'
+          source: 'user',
         });
       }
     }
@@ -206,10 +209,10 @@ export class SettingsManager {
       }
 
       const parsedSettings = JSON.parse(stored);
-      
+
       // 저장된 설정 검증 및 적용
       const validSettings: Partial<AppSettings> = {};
-      
+
       for (const [key, value] of Object.entries(parsedSettings)) {
         if (this.validateSetting(key as keyof AppSettings, value)) {
           (validSettings as any)[key as keyof AppSettings] = value;
@@ -220,7 +223,9 @@ export class SettingsManager {
 
       if (Object.keys(validSettings).length > 0) {
         this.setMultiple(validSettings, 'local');
-        console.log(`[SettingsManager] Loaded ${Object.keys(validSettings).length} settings from storage`);
+        console.log(
+          `[SettingsManager] Loaded ${Object.keys(validSettings).length} settings from storage`
+        );
       }
 
       return true;
@@ -241,17 +246,17 @@ export class SettingsManager {
 
     try {
       const response = await fetch(`${this.baseUrl}${SETTINGS_KEYS.SERVER_ENDPOINT}`);
-      
+
       if (!response.ok) {
         console.log(`[SettingsManager] Server settings not available: ${response.status}`);
         return false;
       }
 
       const serverSettings = await response.json();
-      
+
       // 서버 설정 검증 및 적용
       const validSettings: Partial<AppSettings> = {};
-      
+
       for (const [key, value] of Object.entries(serverSettings)) {
         if (this.validateSetting(key as keyof AppSettings, value)) {
           (validSettings as any)[key as keyof AppSettings] = value;
@@ -262,7 +267,9 @@ export class SettingsManager {
 
       if (Object.keys(validSettings).length > 0) {
         this.setMultiple(validSettings, 'server');
-        console.log(`[SettingsManager] Loaded ${Object.keys(validSettings).length} settings from server`);
+        console.log(
+          `[SettingsManager] Loaded ${Object.keys(validSettings).length} settings from server`
+        );
       }
 
       return true;
@@ -289,7 +296,7 @@ export class SettingsManager {
         textColor: 'textColor',
         textSize: 'textSize',
         notificationLayout: 'notificationLayout',
-        animationType: 'animationType'
+        animationType: 'animationType',
       };
 
       for (const [paramName, settingKey] of Object.entries(paramMapping)) {
@@ -317,14 +324,18 @@ export class SettingsManager {
           if (this.validateSetting(settingKey, parsedValue)) {
             (urlSettings as any)[settingKey] = parsedValue;
           } else {
-            console.warn(`[SettingsManager] Invalid URL parameter ignored: ${paramName} = ${paramValue}`);
+            console.warn(
+              `[SettingsManager] Invalid URL parameter ignored: ${paramName} = ${paramValue}`
+            );
           }
         }
       }
 
       if (Object.keys(urlSettings).length > 0) {
         this.setMultiple(urlSettings, 'url');
-        console.log(`[SettingsManager] Loaded ${Object.keys(urlSettings).length} settings from URL`);
+        console.log(
+          `[SettingsManager] Loaded ${Object.keys(urlSettings).length} settings from URL`
+        );
       }
 
       return true;
@@ -347,7 +358,7 @@ export class SettingsManager {
       const response = await fetch(`${this.baseUrl}${SETTINGS_KEYS.SERVER_ENDPOINT}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.settings)
+        body: JSON.stringify(this.settings),
       });
 
       if (response.ok) {
@@ -389,7 +400,7 @@ export class SettingsManager {
    */
   private validateSetting(key: keyof AppSettings, value: any): boolean {
     const validation = SETTINGS_VALIDATION[key as keyof typeof SETTINGS_VALIDATION];
-    
+
     if (!validation) {
       return true; // 검증 규칙이 없으면 통과
     }
@@ -398,20 +409,23 @@ export class SettingsManager {
       case 'volume':
       case 'pollingInterval':
       case 'displayDuration':
-      case 'textSize':
+      case 'textSize': {
         const numValidation = validation as { min: number; max: number; step: number };
-        return typeof value === 'number' && 
-               value >= numValidation.min && 
-               value <= numValidation.max;
+        return (
+          typeof value === 'number' && value >= numValidation.min && value <= numValidation.max
+        );
+      }
 
       case 'animationType':
-      case 'notificationLayout':
+      case 'notificationLayout': {
         const arrayValidation = validation as readonly string[];
         return arrayValidation.includes(value);
+      }
 
-      case 'textColor':
+      case 'textColor': {
         const regexValidation = validation as RegExp;
         return typeof value === 'string' && regexValidation.test(value);
+      }
 
       case 'enableTTS':
         return typeof value === 'boolean';

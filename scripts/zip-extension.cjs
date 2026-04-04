@@ -90,12 +90,52 @@ function buildFirefoxExtension() {
     });
 }
 
+// Firefox 확장프로그램 xpi 생성
+function buildFirefoxXpi() {
+    return new Promise((resolve, reject) => {
+        const outputFilename = 'firefox-extension.xpi';
+        const outputPath = path.join(versionDir, outputFilename);
+
+        const output = fs.createWriteStream(outputPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', function () {
+            console.log(`✅ Firefox XPI: ${outputFilename} (${archive.pointer()} bytes)`);
+            resolve();
+        });
+
+        archive.on('error', reject);
+        archive.pipe(output);
+
+        const files = fs.readdirSync(extensionDir);
+        for (const file of files) {
+            if (file === 'manifest.json') continue;
+            if (file === 'manifest.firefox.json') {
+                archive.file(path.join(extensionDir, file), { name: 'manifest.json' });
+                continue;
+            }
+
+            const filePath = path.join(extensionDir, file);
+            const stat = fs.statSync(filePath);
+
+            if (stat.isDirectory()) {
+                archive.directory(filePath, file);
+            } else {
+                archive.file(filePath, { name: file });
+            }
+        }
+
+        archive.finalize();
+    });
+}
+
 // 빌드 실행
 async function build() {
     console.log(`🔧 v${version} 빌드 시작...\n`);
     console.log(`📁 출력 폴더: dist/v${version}/\n`);
     await buildChromeExtension();
     await buildFirefoxExtension();
+    await buildFirefoxXpi();
 
     console.log('\n✨ 빌드 완료!');
 }

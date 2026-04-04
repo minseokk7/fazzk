@@ -9,12 +9,12 @@
   const log = createLogger('ConnectionStatus');
 
   // Props
-  let { 
+  let {
     position = 'top-left', // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
     showDetails = false, // 상세 정보 표시 여부
     showMetrics = false, // 메트릭 표시 여부
     autoHide = true, // 연결 시 자동 숨김
-    compact = false // 컴팩트 모드
+    compact = false, // 컴팩트 모드
   } = $props();
 
   // State
@@ -30,50 +30,54 @@
       color: '#10b981',
       bgColor: '#d1fae5',
       icon: '●',
-      text: '연결됨'
+      text: '연결됨',
     },
     connecting: {
       color: '#f59e0b',
       bgColor: '#fef3c7',
       icon: '◐',
-      text: '연결 중...'
+      text: '연결 중...',
     },
     reconnecting: {
       color: '#f59e0b',
       bgColor: '#fef3c7',
       icon: '↻',
-      text: '재연결 중...'
+      text: '재연결 중...',
     },
     disconnected: {
       color: '#6b7280',
       bgColor: '#f3f4f6',
       icon: '○',
-      text: '연결 해제'
+      text: '연결 해제',
     },
     error: {
       color: '#ef4444',
       bgColor: '#fee2e2',
       icon: '✕',
-      text: '연결 오류'
-    }
+      text: '연결 오류',
+    },
   };
 
   // 현재 상태 스타일
   let currentStyle = $derived(statusStyles[connectionState?.status] || statusStyles.disconnected);
 
   // 표시 여부 결정
-  let shouldShow = $derived(!autoHide || (connectionState?.status !== 'connected'));
+  let shouldShow = $derived(!autoHide || connectionState?.status !== 'connected');
 
   // 컴포넌트 마운트
   onMount(() => {
+    if (showDetails) {
+      showPanel = true;
+    }
+
     // 연결 상태 리스너
-    removeStateListener = connectionManager.addListener((state) => {
+    removeStateListener = connectionManager.addListener(state => {
       connectionState = state;
       log.debug('Connection state updated:', state.status);
     });
 
     // 메트릭 리스너
-    removeMetricsListener = connectionManager.addMetricsListener((newMetrics) => {
+    removeMetricsListener = connectionManager.addMetricsListener(newMetrics => {
       metrics = newMetrics;
     });
   });
@@ -110,11 +114,11 @@
   // 지속시간 포맷팅
   function formatDuration(ms) {
     if (!ms) return '-';
-    
+
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
-    
+
     if (hours > 0) {
       return `${hours}시간 ${minutes % 60}분`;
     } else if (minutes > 0) {
@@ -133,13 +137,9 @@
 </script>
 
 {#if shouldShow && connectionState}
-  <div 
-    class="connection-status {position}"
-    class:compact
-    class:with-panel={showPanel}
-  >
+  <div class="connection-status {position}" class:compact class:with-panel={showPanel}>
     <!-- 상태 표시 -->
-    <div 
+    <div
       class="status-indicator"
       style="
         color: {currentStyle.color};
@@ -148,13 +148,17 @@
       onclick={togglePanel}
       role="button"
       tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && togglePanel()}
+      onkeydown={e => e.key === 'Enter' && togglePanel()}
       title="연결 상태: {currentStyle.text}"
     >
-      <span class="status-icon" class:spinning={connectionState.status === 'connecting' || connectionState.status === 'reconnecting'}>
+      <span
+        class="status-icon"
+        class:spinning={connectionState.status === 'connecting' ||
+          connectionState.status === 'reconnecting'}
+      >
         {currentStyle.icon}
       </span>
-      
+
       {#if !compact}
         <span class="status-text">
           {currentStyle.text}
@@ -187,21 +191,21 @@
                 {currentStyle.text}
               </span>
             </div>
-            
+
             {#if connectionState.lastConnected}
               <div class="info-item">
                 <span class="label">마지막 연결:</span>
                 <span class="value">{formatTime(connectionState.lastConnected)}</span>
               </div>
             {/if}
-            
+
             {#if connectionState.lastDisconnected}
               <div class="info-item">
                 <span class="label">마지막 해제:</span>
                 <span class="value">{formatTime(connectionState.lastDisconnected)}</span>
               </div>
             {/if}
-            
+
             {#if connectionState.latency}
               <div class="info-item">
                 <span class="label">지연시간:</span>
@@ -232,7 +236,7 @@
                   <span class="value">{connectionState.serverInfo.version}</span>
                 </div>
               {/if}
-              
+
               {#if connectionState.serverInfo.clientCount}
                 <div class="info-item">
                   <span class="label">클라이언트:</span>
@@ -252,27 +256,24 @@
                 <span class="label">총 연결:</span>
                 <span class="value">{metrics.totalConnections}회</span>
               </div>
-              
+
               <div class="info-item">
                 <span class="label">재연결:</span>
                 <span class="value">{metrics.totalReconnects}회</span>
               </div>
-              
+
               <div class="info-item">
                 <span class="label">업타임:</span>
                 <span class="value">{formatDuration(metrics.uptime)}</span>
               </div>
-              
+
               <div class="info-item">
                 <span class="label">안정성:</span>
-                <span 
-                  class="value" 
-                  style="color: {getReliabilityColor(metrics.reliability)};"
-                >
+                <span class="value" style="color: {getReliabilityColor(metrics.reliability)};">
                   {Math.round(metrics.reliability)}%
                 </span>
               </div>
-              
+
               {#if metrics.averageLatency > 0}
                 <div class="info-item">
                   <span class="label">평균 지연:</span>
@@ -286,18 +287,12 @@
         <!-- 액션 버튼 -->
         <div class="panel-actions">
           {#if connectionState.status === 'reconnecting'}
-            <button class="btn btn-secondary" onclick={cancelReconnect}>
-              재연결 취소
-            </button>
+            <button class="btn btn-secondary" onclick={cancelReconnect}> 재연결 취소 </button>
           {:else if connectionState.status === 'disconnected' || connectionState.status === 'error'}
-            <button class="btn btn-primary" onclick={forceReconnect}>
-              다시 연결
-            </button>
+            <button class="btn btn-primary" onclick={forceReconnect}> 다시 연결 </button>
           {/if}
-          
-          <button class="btn btn-secondary" onclick={togglePanel}>
-            닫기
-          </button>
+
+          <button class="btn btn-secondary" onclick={togglePanel}> 닫기 </button>
         </div>
       </div>
     {/if}
@@ -308,7 +303,10 @@
   .connection-status {
     position: fixed;
     z-index: 1000;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
   }
 
   .connection-status.top-left {
@@ -497,8 +495,12 @@
   }
 
   @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 
   @keyframes slideDown {

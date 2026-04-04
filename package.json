@@ -1,7 +1,7 @@
 {
   "name": "fazzk",
   "private": true,
-  "version": "2.9.0",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,7 @@
     "lint:fix": "eslint src --ext .ts,.js,.svelte --fix",
     "format": "prettier --write src/**/*.{ts,js,svelte,json,css}",
     "format:check": "prettier --check src/**/*.{ts,js,svelte,json,css}",
-    "quality": "npm run lint && npm run format:check && npm run type-check",
+    "quality": "npm run lint && npm run format:check && npm run type-check && npm run check",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
@@ -35,8 +35,10 @@
     "archiver": "^7.0.1",
     "eslint": "^9.39.2",
     "eslint-plugin-svelte": "^3.13.1",
+    "globals": "^16.5.0",
     "prettier": "^3.7.4",
     "prettier-plugin-svelte": "^3.4.1",
+    "supabase": "^2.78.1",
     "svelte": "^5.43.8",
     "svelte-check": "^4.3.5",
     "svelte-eslint-parser": "^1.4.1",

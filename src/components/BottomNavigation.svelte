@@ -6,7 +6,11 @@
 
 <div class="bottom-nav-wrapper">
   <div class="bottom-nav">
-    <button class="nav-btn history-btn" onclick={() => (showHistory = !showHistory)} title="히스토리">
+    <button
+      class="nav-btn history-btn"
+      onclick={() => (showHistory = !showHistory)}
+      title="히스토리"
+    >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path
           stroke-linecap="round"
@@ -30,7 +34,11 @@
       <span>테스트</span>
     </button>
 
-    <button class="nav-btn settings-btn" onclick={() => (showSettings = !showSettings)} title="설정">
+    <button
+      class="nav-btn settings-btn"
+      onclick={() => (showSettings = !showSettings)}
+      title="설정"
+    >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path
           stroke-linecap="round"

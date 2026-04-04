@@ -97,6 +97,7 @@
     <script>
     let currentPortIndex = 0;
     const ports = [3001, 3000, 3002, 3003, 3004, 3005, 8080, 8081, 9000, 9001];
+    const hosts = ['127.0.0.1', 'localhost'];
     
     async function findFazzkServer() {
         const status = document.getElementById('status');
@@ -106,43 +107,41 @@
         status.className = 'status loading';
         status.textContent = '🔍 Fazzk 서버 검색 중...';
         
-        for (let i = 0; i < ports.length; i++) {
-            const port = ports[i];
+        const attempts = hosts.flatMap(host => ports.map(port => ({ host, port })));
+
+        for (let i = 0; i < attempts.length; i++) {
+            const { host, port } = attempts[i];
             currentPortIndex = i;
-            
-            // 진행률 업데이트
-            const progressPercent = ((i + 1) / ports.length) * 100;
+
+            const progressPercent = ((i + 1) / attempts.length) * 100;
             progress.style.width = progressPercent + '%';
-            
-            status.textContent = `🔍 포트 ${port} 확인 중... (${i+1}/${ports.length})`;
-            portInfo.innerHTML = `검색 중인 포트: <span class="current-port">${port}</span>`;
-            
+
+            status.textContent = `🔍 ${host}:${port} 확인 중... (${i+1}/${attempts.length})`;
+            portInfo.innerHTML = `검색 중인 주소: <span class="current-port">${host}:${port}</span>`;
+
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 1500);
-                
-                const response = await fetch(`http://localhost:${port}/settings`, {
+
+                const response = await fetch(`http://${host}:${port}/health`, {
                     method: 'GET',
                     mode: 'cors',
                     signal: controller.signal
                 });
-                
+
                 clearTimeout(timeoutId);
-                
+
                 if (response.ok) {
-                    // JSON 응답인지 확인
-                    const contentType = response.headers.get('content-type');
-                    if (contentType && contentType.includes('application/json')) {
-                        redirectToFazzk(port);
+                    const health = await response.json();
+                    if (health && health.app === 'fazzk' && health.status === 'ok') {
+                        redirectToFazzk(host, port);
                         return;
                     }
                 }
             } catch (e) {
-                // 포트 사용 불가 또는 타임아웃 - 다음 포트 시도
                 continue;
             }
-            
-            // 각 포트 검사 사이에 짧은 지연
+
             await new Promise(resolve => setTimeout(resolve, 200));
         }
         
@@ -155,7 +154,7 @@
             1. Fazzk 앱이 실행 중인지 확인<br>
             2. 방화벽이 차단하고 있는지 확인<br>
             3. 바이러스 백신 소프트웨어 확인<br>
-            4. 수동으로 http://localhost:3001/follower 시도<br><br>
+            4. 수동으로 http://127.0.0.1:3001/follower 시도<br><br>
             <small>15초 후 자동으로 다시 검색합니다...</small>
         `;
         
@@ -168,19 +167,19 @@
         }, 15000);
     }
     
-    function redirectToFazzk(port) {
+    function redirectToFazzk(host, port) {
         const status = document.getElementById('status');
         const portInfo = document.getElementById('portInfo');
         const progress = document.getElementById('progress');
         
         progress.style.width = '100%';
         status.className = 'status success';
-        status.innerHTML = `✅ Fazzk 서버 발견!<br>포트 ${port}에서 연결 중...`;
-        portInfo.innerHTML = `발견된 포트: <span class="current-port">${port}</span>`;
+        status.innerHTML = `✅ Fazzk 서버 발견!<br>${host}:${port}에서 연결 중...`;
+        portInfo.innerHTML = `발견된 주소: <span class="current-port">${host}:${port}</span>`;
         
         // 1.5초 후 리다이렉트
         setTimeout(() => {
-            window.location.href = `http://localhost:${port}/follower`;
+            window.location.href = `http://${host}:${port}/follower`;
         }, 1500);
     }
     

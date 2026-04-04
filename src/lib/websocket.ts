@@ -45,8 +45,8 @@ interface WSStatus {
   connecting: boolean;
   reconnectAttempts: number;
   destroyed: boolean;
-  lastError?: string;
-  lastConnected?: number;
+  lastError: string | null;
+  lastConnected: number | null;
 }
 
 // WebSocket 에러 타입
@@ -58,7 +58,6 @@ interface WSError extends Error {
 
 import { globalErrorHandler } from './errorHandler';
 import { createLogger } from './logger';
-import { loadingManager } from './loadingManager';
 import { connectionManager } from './connectionManager';
 
 const log = createLogger('WebSocket');
@@ -68,14 +67,12 @@ export class WSClient {
   private baseUrl: string;
   private ws: WebSocket | null = null;
   private reconnectAttempts: number = 0;
-  private readonly maxReconnectAttempts: number = 10;
-  private reconnectDelay: number = 1000; // 1초
   private isConnecting: boolean = false;
   private isDestroyed: boolean = false;
   private lastError: string | null = null;
   private lastConnected: number | null = null;
-  private connectionTimeout: NodeJS.Timeout | null = null;
-  private pingInterval: NodeJS.Timeout | null = null;
+  private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private readonly connectionTimeoutMs = 10000; // 10초
   private readonly pingIntervalMs = 30000; // 30초
 
@@ -122,11 +119,20 @@ export class WSClient {
   }
 
   // 에러 생성 헬퍼
-  private createWSError(message: string, type: WSError['type'], code?: number, reason?: string): WSError {
+  private createWSError(
+    message: string,
+    type: WSError['type'],
+    code?: number,
+    reason?: string
+  ): WSError {
     const error = new Error(message) as WSError;
     error.type = type;
-    error.code = code;
-    error.reason = reason;
+    if (code !== undefined) {
+      error.code = code;
+    }
+    if (reason !== undefined) {
+      error.reason = reason;
+    }
     return error;
   }
 
@@ -134,17 +140,17 @@ export class WSClient {
   private handleError(error: WSError): void {
     this.lastError = error.message;
     log.error(`WebSocket error [${error.type}]:`, error.message, error);
-    
+
     // 연결 관리자에 에러 알림
     connectionManager.onDisconnected(error.message, error.code);
-    
+
     // 전역 에러 핸들러에 보고
     globalErrorHandler.handleError(error, {
       component: 'WebSocket',
       type: error.type,
       code: error.code,
       reason: error.reason,
-      reconnectAttempts: this.reconnectAttempts
+      reconnectAttempts: this.reconnectAttempts,
     });
 
     // 로컬 에러 이벤트 발생
@@ -154,20 +160,17 @@ export class WSClient {
   // 연결 타임아웃 설정
   private setConnectionTimeout(): void {
     this.clearConnectionTimeout();
-    
+
     this.connectionTimeout = setTimeout(() => {
       if (this.isConnecting) {
         log.warn('Connection timeout');
         this.isConnecting = false;
-        
+
         if (this.ws) {
           this.ws.close();
         }
-        
-        const error = this.createWSError(
-          'Connection timeout',
-          'timeout'
-        );
+
+        const error = this.createWSError('Connection timeout', 'timeout');
         this.handleError(error);
         connectionManager.startReconnect();
       }
@@ -185,7 +188,7 @@ export class WSClient {
   // 핑 인터벌 시작
   private startPingInterval(): void {
     this.stopPingInterval();
-    
+
     this.pingInterval = setInterval(() => {
       if (this.isConnected()) {
         connectionManager.startPing();
@@ -242,14 +245,13 @@ export class WSClient {
         this.clearConnectionTimeout();
         this.isConnecting = false;
         this.reconnectAttempts = 0;
-        this.reconnectDelay = 1000;
         this.lastConnected = Date.now();
         this.lastError = null;
 
         // 연결 관리자에 연결 성공 알림
         connectionManager.onConnected({
           version: '1.0.0', // 서버에서 받아올 수 있다면
-          clientCount: 1
+          clientCount: 1,
         });
 
         // 핑 인터벌 시작
@@ -286,7 +288,10 @@ export class WSClient {
         this.ws = null;
 
         // 연결 관리자에 연결 해제 알림
-        const errorMessage = event.code !== 1000 ? `Connection closed: ${event.reason || 'Unknown reason'}` : undefined;
+        const errorMessage =
+          event.code !== 1000
+            ? `Connection closed: ${event.reason || 'Unknown reason'}`
+            : undefined;
         connectionManager.onDisconnected(errorMessage, event.code);
 
         // 연결 해제 이벤트 발생
@@ -303,17 +308,14 @@ export class WSClient {
         this.clearConnectionTimeout();
         this.isConnecting = false;
 
-        const wsError = this.createWSError(
-          `WebSocket connection error for ${wsUrl}`,
-          'connection'
-        );
+        const wsError = this.createWSError(`WebSocket connection error for ${wsUrl}`, 'connection');
         this.handleError(wsError);
       };
     } catch (e) {
       log.error('Failed to create WebSocket for URL:', wsUrl, 'Error:', e);
       this.clearConnectionTimeout();
       this.isConnecting = false;
-      
+
       const error = this.createWSError(
         `Failed to create WebSocket: ${e instanceof Error ? e.message : String(e)}`,
         'connection'
@@ -350,13 +352,14 @@ export class WSClient {
           this.emit('settings_updated', message.settings);
           break;
 
-        case 'error':
+        case 'error': {
           const serverError = this.createWSError(
             message.message || 'Unknown server error',
             'server'
           );
           this.handleError(serverError);
           break;
+        }
 
         default:
           log.warn('Unknown message type:', message.type);
@@ -497,11 +500,11 @@ export class WSClient {
     log.info('Force reconnecting...');
     this.reconnectAttempts = 0;
     this.lastError = null;
-    
+
     if (this.ws) {
       this.ws.close();
     }
-    
+
     // 연결 관리자를 통한 재연결
     connectionManager.forceReconnect();
   }

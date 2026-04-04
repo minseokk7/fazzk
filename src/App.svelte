@@ -35,8 +35,12 @@
       const currentPath = window.location.pathname;
       const currentHash = window.location.hash;
       log.info('Current URL path:', currentPath, 'hash:', currentHash);
-      
-      if (currentPath === '/follower' || currentPath.endsWith('/follower') || currentHash === '#/follower') {
+
+      if (
+        currentPath === '/follower' ||
+        currentPath.endsWith('/follower') ||
+        currentHash === '#/follower'
+      ) {
         log.info('OBS follower path detected - enabling direct mode');
         directNotifierMode = true;
         // OBS 모드 플래그도 설정
@@ -81,7 +85,7 @@
 </ErrorBoundary>
 
 <!-- 로딩 인디케이터 -->
-<LoadingIndicator 
+<LoadingIndicator
   position="top-right"
   maxVisible={3}
   showProgress={true}
@@ -90,7 +94,7 @@
 />
 
 <!-- 연결 상태 표시 -->
-<ConnectionStatus 
+<ConnectionStatus
   position="bottom-right"
   showDetails={true}
   showMetrics={true}

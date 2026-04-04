@@ -2,7 +2,9 @@
 // browser API 사용 (polyfill에 의해 Chrome에서도 작동)
 
 const PORT_RANGE = { start: 3000, end: 3010 };
+const HOSTS = ['127.0.0.1', 'localhost'];
 let activePort = null;
+let activeHost = null;
 let lastSent = 0;
 let isConnected = false;
 
@@ -31,56 +33,71 @@ async function setIconStatus(status) {
 
 // 사용 가능한 포트 찾기
 async function findActivePort() {
-    for (let port = PORT_RANGE.start; port <= PORT_RANGE.end; port++) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 500);
+    for (const host of HOSTS) {
+        for (let port = PORT_RANGE.start; port <= PORT_RANGE.end; port++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 500);
 
-            const response = await fetch(`http://localhost:${port}/settings`, {
-                method: 'GET',
-                signal: controller.signal
-            });
+                const response = await fetch(`http://${host}:${port}/health`, {
+                    method: 'GET',
+                    signal: controller.signal
+                });
 
-            clearTimeout(timeoutId);
+                clearTimeout(timeoutId);
 
-            if (response.ok) {
-                activePort = port;
-                await api.storage.local.set({ activePort: port });
-                await setIconStatus('connected');
-                return port;
+                if (response.ok) {
+                    const health = await response.json();
+                    if (health?.app !== 'fazzk' || health?.status !== 'ok') {
+                        continue;
+                    }
+
+                    activeHost = host;
+                    activePort = port;
+                    await api.storage.local.set({ activeHost: host, activePort: port });
+                    await setIconStatus('connected');
+                    return { host, port };
+                }
+            } catch (e) {
+                // 이 주소는 사용 불가
             }
-        } catch (e) {
-            // 이 포트는 사용 불가
         }
     }
 
+    activeHost = null;
     activePort = null;
-    await api.storage.local.remove('activePort');
+    await api.storage.local.remove(['activeHost', 'activePort']);
     await setIconStatus('disconnected');
     return null;
 }
 
 // 저장된 포트 확인 또는 탐색
 async function getActivePort() {
-    const stored = await api.storage.local.get('activePort');
+    const stored = await api.storage.local.get(['activeHost', 'activePort']);
 
-    if (stored.activePort) {
+    if (stored.activeHost && stored.activePort) {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 500);
 
-            const response = await fetch(`http://localhost:${stored.activePort}/settings`, {
+            const response = await fetch(`http://${stored.activeHost}:${stored.activePort}/health`, {
                 signal: controller.signal
             });
 
             clearTimeout(timeoutId);
 
             if (response.ok) {
+                const health = await response.json();
+                if (health?.app !== 'fazzk' || health?.status !== 'ok') {
+                    throw new Error('Invalid settings response');
+                }
+
+                activeHost = stored.activeHost;
                 activePort = stored.activePort;
                 if (!isConnected) {
                     await setIconStatus('connected');
                 }
-                return activePort;
+                return { host: activeHost, port: activePort };
             }
         } catch (e) {
             // 저장된 포트 무효
@@ -123,16 +140,18 @@ async function checkAndSendCookies() {
 }
 
 async function sendToApp(nidAut, nidSes) {
-    const port = await getActivePort();
-    if (!port) {
+    const target = await getActivePort();
+    if (!target) {
         await setIconStatus('disconnected');
-        return;
+        return { ok: false, error: 'app_not_running' };
     }
+
+    const { host, port } = target;
 
     try {
         await setIconStatus('syncing');
 
-        const response = await fetch(`http://localhost:${port}/auth/cookies`, {
+        const response = await fetch(`http://${host}:${port}/auth/cookies`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ NID_AUT: nidAut, NID_SES: nidSes })
@@ -150,16 +169,51 @@ async function sendToApp(nidAut, nidSes) {
                     await api.action.setBadgeText({ text: '' });
                 }
             }, 3000);
+            return { ok: true, host, port };
         } else {
             await setIconStatus('disconnected');
+            return { ok: false, error: `http_${response.status}`, host, port };
         }
     } catch (error) {
         console.error('[Send] Error:', error);
+        activeHost = null;
         activePort = null;
-        await api.storage.local.remove('activePort');
+        await api.storage.local.remove(['activeHost', 'activePort']);
         await setIconStatus('disconnected');
+        return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error)
+        };
     }
 }
+
+api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'manualSync') {
+        (async () => {
+            try {
+                const nidAut = await api.cookies.get({ url: 'https://nid.naver.com', name: 'NID_AUT' });
+                const nidSes = await api.cookies.get({ url: 'https://nid.naver.com', name: 'NID_SES' });
+
+                if (!nidAut || !nidSes) {
+                    sendResponse({ ok: false, error: 'missing_cookies' });
+                    return;
+                }
+
+                const result = await sendToApp(nidAut.value, nidSes.value);
+                sendResponse(result);
+            } catch (error) {
+                sendResponse({
+                    ok: false,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+        })();
+
+        return true;
+    }
+
+    return false;
+});
 
 // 시작 시 초기화
 async function initialize() {

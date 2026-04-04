@@ -1,6 +1,11 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { memoryMonitor, formatBytes, getMemoryStatusColor, getMemoryStatusText } from '../lib/memoryMonitor.ts';
+  import {
+    memoryMonitor,
+    formatBytes,
+    getMemoryStatusColor,
+    getMemoryStatusText,
+  } from '../lib/memoryMonitor.ts';
 
   export let showDetails = false;
   export let position = 'bottom-right'; // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
@@ -12,7 +17,7 @@
   onMount(() => {
     // 메모리 모니터링 시작
     memoryMonitor.start();
-    
+
     // 메모리 상태 구독
     const store = memoryMonitor.getStore();
     unsubscribe = store.subscribe(stats => {
@@ -20,7 +25,7 @@
     });
 
     // 메모리 정리 이벤트 리스너
-    const handleCleanupRequest = (event) => {
+    const handleCleanupRequest = event => {
       console.log('[MemoryIndicator] Cleanup requested:', event.detail);
       // 여기서 앱별 정리 로직 실행
       triggerAppCleanup();
@@ -52,9 +57,11 @@
       });
 
       // 2. 히스토리 데이터 정리 (오래된 항목 제거)
-      window.dispatchEvent(new CustomEvent('cleanup-history', {
-        detail: { maxItems: 20 }
-      }));
+      window.dispatchEvent(
+        new CustomEvent('cleanup-history', {
+          detail: { maxItems: 20 },
+        })
+      );
 
       // 3. 캐시된 데이터 정리
       if ('caches' in window) {
@@ -73,11 +80,6 @@
     }
   }
 
-  function handleManualCleanup() {
-    // 이 함수는 더 이상 사용되지 않음 (단축키로 대체)
-    console.log('[MemoryIndicator] Manual cleanup should be triggered via Ctrl+Shift+M');
-  }
-
   $: statusColor = getMemoryStatusColor(memoryStats.percentage);
   $: statusText = getMemoryStatusText(memoryStats.percentage);
 </script>
@@ -86,7 +88,7 @@
   <div class="memory-bar" style="--status-color: {statusColor}">
     <div class="memory-fill" style="width: {memoryStats.percentage}%"></div>
   </div>
-  
+
   {#if !compact}
     <div class="memory-text">
       <span class="percentage">{memoryStats.percentage}%</span>
@@ -107,12 +109,14 @@
       {#if memoryStats.jsHeapSizeLimit}
         <div class="detail-row">
           <span>JS 힙:</span>
-          <span>{formatBytes(memoryStats.usedJSHeapSize)} / {formatBytes(memoryStats.jsHeapSizeLimit)}</span>
+          <span
+            >{formatBytes(memoryStats.usedJSHeapSize)} / {formatBytes(
+              memoryStats.jsHeapSizeLimit
+            )}</span
+          >
         </div>
       {/if}
-      <div class="shortcut-hint">
-        Ctrl+Shift+M: 메모리 정리
-      </div>
+      <div class="shortcut-hint">Ctrl+Shift+M: 메모리 정리</div>
     </div>
   {/if}
 </div>
@@ -138,10 +142,22 @@
   }
 
   /* 위치별 스타일 */
-  .top-left { top: 10px; left: 10px; }
-  .top-right { top: 10px; right: 10px; }
-  .bottom-left { bottom: 10px; left: 10px; }
-  .bottom-right { bottom: 10px; right: 10px; }
+  .top-left {
+    top: 10px;
+    left: 10px;
+  }
+  .top-right {
+    top: 10px;
+    right: 10px;
+  }
+  .bottom-left {
+    bottom: 10px;
+    left: 10px;
+  }
+  .bottom-right {
+    bottom: 10px;
+    right: 10px;
+  }
 
   .memory-bar {
     width: 100%;
@@ -155,7 +171,9 @@
   .memory-fill {
     height: 100%;
     background: var(--status-color);
-    transition: width 0.3s ease, background-color 0.3s ease;
+    transition:
+      width 0.3s ease,
+      background-color 0.3s ease;
   }
 
   .memory-text {
@@ -206,7 +224,13 @@
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

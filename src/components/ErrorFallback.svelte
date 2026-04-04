@@ -8,13 +8,13 @@
   const log = createLogger('ErrorFallback');
 
   // Props
-  let { 
+  let {
     errorInfo = null,
     retry = null,
     resetError = null,
     canRetry = true,
     retryCount = 0,
-    maxRetries = 3
+    maxRetries = 3,
   } = $props();
 
   // State
@@ -37,10 +37,11 @@
       stack: errorInfo?.stack,
       retryCount,
       userAgent: navigator.userAgent,
-      url: window.location.href
+      url: window.location.href,
     };
 
-    navigator.clipboard.writeText(JSON.stringify(details, null, 2))
+    navigator.clipboard
+      .writeText(JSON.stringify(details, null, 2))
       .then(() => {
         log.info('Error details copied to clipboard');
         // 간단한 피드백 표시
@@ -76,17 +77,23 @@
   <div class="error-container">
     <!-- 에러 아이콘 -->
     <div class="error-icon">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="10" stroke="#ef4444" stroke-width="2"/>
-        <line x1="15" y1="9" x2="9" y2="15" stroke="#ef4444" stroke-width="2"/>
-        <line x1="9" y1="9" x2="15" y2="15" stroke="#ef4444" stroke-width="2"/>
+      <svg
+        width="64"
+        height="64"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <circle cx="12" cy="12" r="10" stroke="#ef4444" stroke-width="2" />
+        <line x1="15" y1="9" x2="9" y2="15" stroke="#ef4444" stroke-width="2" />
+        <line x1="9" y1="9" x2="15" y2="15" stroke="#ef4444" stroke-width="2" />
       </svg>
     </div>
 
     <!-- 에러 메시지 -->
     <div class="error-content">
       <h2 class="error-title">문제가 발생했습니다</h2>
-      
+
       <p class="error-message">
         {errorInfo?.message || '알 수 없는 오류가 발생했습니다.'}
       </p>
@@ -107,65 +114,44 @@
     <!-- 액션 버튼들 -->
     <div class="error-actions">
       {#if canRetry && retry}
-        <button 
-          class="btn btn-primary" 
-          onclick={retry}
-        >
+        <button class="btn btn-primary" onclick={retry}>
           다시 시도 ({maxRetries - retryCount}회 남음)
         </button>
       {/if}
 
       {#if resetError}
-        <button 
-          class="btn btn-secondary" 
-          onclick={resetError}
-        >
-          에러 무시하고 계속
-        </button>
+        <button class="btn btn-secondary" onclick={resetError}> 에러 무시하고 계속 </button>
       {/if}
 
-      <button 
-        class="btn btn-secondary" 
-        onclick={refreshPage}
-      >
-        페이지 새로고침
-      </button>
+      <button class="btn btn-secondary" onclick={refreshPage}> 페이지 새로고침 </button>
     </div>
 
     <!-- 고급 옵션 -->
     <div class="error-advanced">
-      <button 
-        class="btn-link" 
-        onclick={() => showDetails = !showDetails}
-      >
+      <button class="btn-link" onclick={() => (showDetails = !showDetails)}>
         {showDetails ? '상세 정보 숨기기' : '상세 정보 보기'}
       </button>
 
-      <button 
-        class="btn-link" 
-        onclick={loadErrorStats}
-      >
-        에러 통계 보기
-      </button>
+      <button class="btn-link" onclick={loadErrorStats}> 에러 통계 보기 </button>
     </div>
 
     <!-- 에러 상세 정보 -->
     {#if showDetails && errorInfo}
       <div class="error-details">
         <h3>상세 정보</h3>
-        
+
         <div class="detail-item">
-          <strong>시간:</strong> 
+          <strong>시간:</strong>
           {new Date(errorInfo.timestamp).toLocaleString()}
         </div>
-        
+
         <div class="detail-item">
-          <strong>URL:</strong> 
+          <strong>URL:</strong>
           {window.location.href}
         </div>
-        
+
         <div class="detail-item">
-          <strong>브라우저:</strong> 
+          <strong>브라우저:</strong>
           {navigator.userAgent}
         </div>
 
@@ -176,10 +162,7 @@
           </div>
         {/if}
 
-        <button 
-          class="btn btn-small copy-button" 
-          onclick={copyErrorDetails}
-        >
+        <button class="btn btn-small copy-button" onclick={copyErrorDetails}>
           에러 정보 복사
         </button>
       </div>
@@ -189,18 +172,18 @@
     {#if showStats && errorStats}
       <div class="error-stats">
         <h3>에러 통계</h3>
-        
+
         <div class="stats-grid">
           <div class="stat-item">
             <span class="stat-label">총 에러:</span>
             <span class="stat-value">{errorStats.totalErrors}</span>
           </div>
-          
+
           <div class="stat-item">
             <span class="stat-label">심각한 에러:</span>
             <span class="stat-value critical">{errorStats.criticalErrors}</span>
           </div>
-          
+
           <div class="stat-item">
             <span class="stat-label">에러율:</span>
             <span class="stat-value">{errorStats.errorRate.toFixed(2)}/분</span>
@@ -210,7 +193,7 @@
         {#if errorStats.commonErrors.length > 0}
           <div class="common-errors">
             <h4>자주 발생하는 에러</h4>
-            {#each errorStats.commonErrors as commonError}
+            {#each errorStats.commonErrors as commonError (commonError.message)}
               <div class="common-error-item">
                 <span class="error-text">{commonError.message}</span>
                 <span class="error-count">({commonError.count}회)</span>
@@ -219,12 +202,7 @@
           </div>
         {/if}
 
-        <button 
-          class="btn btn-small btn-danger" 
-          onclick={clearErrors}
-        >
-          모든 에러 지우기
-        </button>
+        <button class="btn btn-small btn-danger" onclick={clearErrors}> 모든 에러 지우기 </button>
       </div>
     {/if}
   </div>
@@ -361,7 +339,8 @@
     color: #2563eb;
   }
 
-  .error-details, .error-stats {
+  .error-details,
+  .error-stats {
     margin-top: 1.5rem;
     padding: 1rem;
     background: #f9fafb;
@@ -369,7 +348,8 @@
     text-align: left;
   }
 
-  .error-details h3, .error-stats h3 {
+  .error-details h3,
+  .error-stats h3 {
     margin-bottom: 1rem;
     color: #374151;
     font-size: 1.125rem;

@@ -18,14 +18,14 @@ export type ToastType = ToastNotification['type'];
 class ToastManagerClass {
   private toasts: ToastNotification[] = [];
   private listeners: Set<(toasts: ToastNotification[]) => void> = new Set();
-  private timeouts: Map<string, NodeJS.Timeout> = new Map();
+  private timeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   // 리스너 등록
   subscribe(listener: (toasts: ToastNotification[]) => void): () => void {
     this.listeners.add(listener);
     // 현재 토스트 목록을 즉시 전달
     listener([...this.toasts]);
-    
+
     // 구독 해제 함수 반환
     return () => {
       this.listeners.delete(listener);
@@ -43,15 +43,15 @@ class ToastManagerClass {
   show(toast: Omit<ToastNotification, 'id' | 'timestamp'>): string {
     // OBS 모드에서는 토스트 알림을 표시하지 않음
     if (this.isOBSMode()) {
-      console.log(`[Toast] OBS 모드에서 토스트 알림 무시: ${toast.type.toUpperCase()}: ${toast.title} - ${toast.message}`);
+      console.log(
+        `[Toast] OBS 모드에서 토스트 알림 무시: ${toast.type.toUpperCase()}: ${toast.title} - ${toast.message}`
+      );
       return ''; // 빈 ID 반환
     }
 
     // 중복 방지: 같은 제목과 타입의 토스트가 이미 있으면 기존 것을 제거
-    const existingToast = this.toasts.find(t => 
-      t.title === toast.title && 
-      t.type === toast.type &&
-      t.message === toast.message
+    const existingToast = this.toasts.find(
+      t => t.title === toast.title && t.type === toast.type && t.message === toast.message
     );
     if (existingToast) {
       this.remove(existingToast.id);
@@ -61,7 +61,7 @@ class ToastManagerClass {
     const newToast: ToastNotification = {
       ...toast,
       id,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     this.toasts.push(newToast);
@@ -73,7 +73,7 @@ class ToastManagerClass {
       const timeout = setTimeout(() => {
         this.remove(id);
       }, duration);
-      
+
       this.timeouts.set(id, timeout);
     }
 
@@ -83,8 +83,10 @@ class ToastManagerClass {
 
   // OBS 모드 감지
   private isOBSMode(): boolean {
-    if (typeof window === 'undefined') return false;
-    
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
     return !!(
       window.OBS_MODE ||
       window.DIRECT_NOTIFIER_MODE ||
@@ -129,7 +131,7 @@ class ToastManagerClass {
     // 모든 타이머 정리
     this.timeouts.forEach(timeout => clearTimeout(timeout));
     this.timeouts.clear();
-    
+
     this.toasts = [];
     this.notifyListeners();
   }
@@ -146,17 +148,22 @@ class ToastManagerClass {
       type: 'success',
       title,
       message,
-      ...options
+      ...options,
     });
   }
 
-  error(title: string, message: string, persistent = false, options?: Partial<ToastNotification>): string {
+  error(
+    title: string,
+    message: string,
+    persistent = false,
+    options?: Partial<ToastNotification>
+  ): string {
     return this.show({
       type: 'error',
       title,
       message,
       persistent,
-      ...options
+      ...options,
     });
   }
 
@@ -165,7 +172,7 @@ class ToastManagerClass {
       type: 'warning',
       title,
       message,
-      ...options
+      ...options,
     });
   }
 
@@ -174,7 +181,7 @@ class ToastManagerClass {
       type: 'info',
       title,
       message,
-      ...options
+      ...options,
     });
   }
 

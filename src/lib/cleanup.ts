@@ -32,7 +32,7 @@ export class CleanupManager {
       this.timers.delete(timer);
       callback();
     }, delay);
-    
+
     this.timers.add(timer);
     return timer;
   }
@@ -56,11 +56,11 @@ export class CleanupManager {
     options?: boolean | AddEventListenerOptions
   ): void {
     element.addEventListener(event, handler, options);
-    this.eventListeners.push({ 
-      element, 
-      event, 
-      handler, 
-      ...(options !== undefined && { options })
+    this.eventListeners.push({
+      element,
+      event,
+      handler,
+      ...(options !== undefined && { options }),
     });
   }
 
@@ -151,7 +151,7 @@ export function safeSetTimeout(callback: () => void, delay: number): NodeJS.Time
       console.error('[safeSetTimeout] Error in callback:', error);
     }
   }, delay);
-  
+
   return timer;
 }
 
@@ -166,7 +166,7 @@ export function safeSetInterval(callback: () => void, delay: number): NodeJS.Tim
       console.error('[safeSetInterval] Error in callback:', error);
     }
   }, delay);
-  
+
   return interval;
 }
 
@@ -178,12 +178,12 @@ export function debounce<T extends (...args: any[]) => any>(
   delay: number
 ): (...args: Parameters<T>) => void {
   let timeoutId: NodeJS.Timeout | null = null;
-  
+
   return (...args: Parameters<T>) => {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
-    
+
     timeoutId = setTimeout(() => {
       func(...args);
       timeoutId = null;
@@ -200,19 +200,22 @@ export function throttle<T extends (...args: any[]) => any>(
 ): (...args: Parameters<T>) => void {
   let lastCall = 0;
   let timeoutId: NodeJS.Timeout | null = null;
-  
+
   return (...args: Parameters<T>) => {
     const now = Date.now();
-    
+
     if (now - lastCall >= delay) {
       lastCall = now;
       func(...args);
     } else if (!timeoutId) {
-      timeoutId = setTimeout(() => {
-        lastCall = Date.now();
-        func(...args);
-        timeoutId = null;
-      }, delay - (now - lastCall));
+      timeoutId = setTimeout(
+        () => {
+          lastCall = Date.now();
+          func(...args);
+          timeoutId = null;
+        },
+        delay - (now - lastCall)
+      );
     }
   };
 }

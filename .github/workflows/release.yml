@@ -28,8 +28,8 @@ jobs:
       - name: Build Extensions
         run: npm run zip-extensions
 
-
-
+      - name: Run quality checks
+        run: npm run quality
       - name: Build app
         run: npm run tauri build
         env:

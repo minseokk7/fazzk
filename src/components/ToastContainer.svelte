@@ -16,12 +16,12 @@
     'bottom-right': 'toast-container-bottom-right',
     'bottom-left': 'toast-container-bottom-left',
     'top-center': 'toast-container-top-center',
-    'bottom-center': 'toast-container-bottom-center'
+    'bottom-center': 'toast-container-bottom-center',
   };
 
   onMount(() => {
     // 토스트 매니저 구독
-    unsubscribe = toastManager.subscribe((newToasts) => {
+    unsubscribe = toastManager.subscribe(newToasts => {
       // 최대 개수 제한
       toasts = newToasts.slice(-maxToasts);
     });

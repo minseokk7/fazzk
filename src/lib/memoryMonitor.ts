@@ -22,7 +22,7 @@ class MemoryMonitor {
   private memoryStore = writable<MemoryStats>({
     used: 0,
     total: 0,
-    percentage: 0
+    percentage: 0,
   });
 
   constructor(config: Partial<MemoryMonitorConfig> = {}) {
@@ -31,12 +31,14 @@ class MemoryMonitor {
       warningThreshold: 70, // 70% 경고
       criticalThreshold: 85, // 85% 위험
       autoCleanup: true,
-      ...config
+      ...config,
     };
   }
 
   start() {
-    if (this.intervalId) return;
+    if (this.intervalId) {
+      return;
+    }
 
     this.updateMemoryStats();
     this.intervalId = window.setInterval(() => {
@@ -83,7 +85,7 @@ class MemoryMonitor {
         percentage: Math.round((memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100),
         jsHeapSizeLimit: memory.jsHeapSizeLimit,
         totalJSHeapSize: memory.totalJSHeapSize,
-        usedJSHeapSize: memory.usedJSHeapSize
+        usedJSHeapSize: memory.usedJSHeapSize,
       };
     }
 
@@ -94,7 +96,7 @@ class MemoryMonitor {
       return {
         used: estimatedUsed,
         total: deviceMemory,
-        percentage: 30 // 추정값
+        percentage: 30, // 추정값
       };
     }
 
@@ -102,7 +104,7 @@ class MemoryMonitor {
     return {
       used: 0,
       total: 0,
-      percentage: 0
+      percentage: 0,
     };
   }
 
@@ -115,10 +117,11 @@ class MemoryMonitor {
       }
 
       // 커스텀 정리 이벤트 발생
-      window.dispatchEvent(new CustomEvent('memory-cleanup-requested', {
-        detail: { trigger: 'auto', threshold: this.config.criticalThreshold }
-      }));
-
+      window.dispatchEvent(
+        new CustomEvent('memory-cleanup-requested', {
+          detail: { trigger: 'auto', threshold: this.config.criticalThreshold },
+        })
+      );
     } catch (error) {
       console.error('[MemoryMonitor] Error during cleanup:', error);
     }
@@ -143,7 +146,7 @@ class MemoryMonitor {
   // 설정 업데이트
   updateConfig(newConfig: Partial<MemoryMonitorConfig>) {
     this.config = { ...this.config, ...newConfig };
-    
+
     // 인터벌 재시작 (업데이트 간격이 변경된 경우)
     if (this.intervalId && newConfig.updateInterval) {
       this.stop();
@@ -157,25 +160,39 @@ export const memoryMonitor = new MemoryMonitor();
 
 // 유틸리티 함수들
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  
+  if (bytes === 0) {
+    return '0 B';
+  }
+
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 export function getMemoryStatusColor(percentage: number): string {
-  if (percentage >= 85) return '#ff4757'; // 위험 - 빨강
-  if (percentage >= 70) return '#ffa502'; // 경고 - 주황
-  if (percentage >= 50) return '#fffa65'; // 주의 - 노랑
+  if (percentage >= 85) {
+    return '#ff4757';
+  } // 위험 - 빨강
+  if (percentage >= 70) {
+    return '#ffa502';
+  } // 경고 - 주황
+  if (percentage >= 50) {
+    return '#fffa65';
+  } // 주의 - 노랑
   return '#2ed573'; // 정상 - 초록
 }
 
 export function getMemoryStatusText(percentage: number): string {
-  if (percentage >= 85) return '위험';
-  if (percentage >= 70) return '경고';
-  if (percentage >= 50) return '주의';
+  if (percentage >= 85) {
+    return '위험';
+  }
+  if (percentage >= 70) {
+    return '경고';
+  }
+  if (percentage >= 50) {
+    return '주의';
+  }
   return '정상';
 }

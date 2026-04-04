@@ -3,7 +3,7 @@
 -->
 <script>
   // Props
-  let { 
+  let {
     width = '100%',
     height = '20px',
     borderRadius = '4px',
@@ -11,41 +11,41 @@
     spacing = '8px', // 스켈레톤 간 간격
     variant = 'text', // 'text', 'circular', 'rectangular', 'rounded'
     animation = 'pulse', // 'pulse', 'wave', 'none'
-    color = 'default' // 'default', 'light', 'dark'
+    color = 'default', // 'default', 'light', 'dark'
   } = $props();
 
   // 변형별 기본 스타일
   const variantStyles = {
     text: {
       height: '1em',
-      borderRadius: '4px'
+      borderRadius: '4px',
     },
     circular: {
       borderRadius: '50%',
-      aspectRatio: '1'
+      aspectRatio: '1',
     },
     rectangular: {
-      borderRadius: '0'
+      borderRadius: '0',
     },
     rounded: {
-      borderRadius: '8px'
-    }
+      borderRadius: '8px',
+    },
   };
 
   // 색상 테마
   const colorThemes = {
     default: {
       background: '#f3f4f6',
-      highlight: '#e5e7eb'
+      highlight: '#e5e7eb',
     },
     light: {
       background: '#f9fafb',
-      highlight: '#f3f4f6'
+      highlight: '#f3f4f6',
     },
     dark: {
       background: '#374151',
-      highlight: '#4b5563'
-    }
+      highlight: '#4b5563',
+    },
   };
 
   // 계산된 스타일
@@ -53,14 +53,14 @@
   let theme = $derived(colorThemes[color] || colorThemes.default);
   let skeletonHeight = $derived(variantStyle.height || height);
   let skeletonBorderRadius = $derived(variantStyle.borderRadius || borderRadius);
-  
+
   // 스켈레톤 배열 생성
   let skeletons = $derived(Array.from({ length: count }, (_, i) => i));
 </script>
 
 <div class="skeleton-container" style="gap: {spacing};">
-  {#each skeletons as _, index}
-    <div 
+  {#each skeletons as skeleton (skeleton)}
+    <div
       class="skeleton"
       class:pulse={animation === 'pulse'}
       class:wave={animation === 'wave'}
@@ -100,7 +100,8 @@
   }
 
   @keyframes pulse {
-    0%, 100% {
+    0%,
+    100% {
       opacity: 1;
     }
     50% {

@@ -8,7 +8,7 @@
   const dispatch = createEventDispatcher();
 
   // Props
-  let { 
+  let {
     show = false,
     message = '로딩 중...',
     progress = null, // 0-100 또는 null
@@ -16,7 +16,7 @@
     onCancel = null,
     blur = true, // 배경 블러 효과
     opacity = 0.8, // 배경 투명도
-    zIndex = 9999 // z-index 값
+    zIndex = 9999, // z-index 값
   } = $props();
 
   // 취소 핸들러
@@ -40,8 +40,7 @@
 </script>
 
 {#if show}
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div 
+  <div
     class="loading-overlay"
     class:blur
     style="
@@ -56,22 +55,18 @@
   >
     <div class="loading-content">
       <!-- 로딩 스피너 -->
-      <LoadingSpinner 
-        size="large" 
-        color="white" 
-        label={message}
-      />
-      
+      <LoadingSpinner size="large" color="white" label={message} />
+
       <!-- 메시지 -->
       <div id="loading-message" class="message">
         {message}
       </div>
-      
+
       <!-- 진행률 바 -->
       {#if showProgress}
         <div class="progress-container">
           <div class="progress-bar">
-            <div 
+            <div
               class="progress-fill"
               style="width: {isNaN(progressValue) ? 0 : progressValue}%"
             ></div>
@@ -81,16 +76,10 @@
           </div>
         </div>
       {/if}
-      
+
       <!-- 취소 버튼 -->
       {#if cancellable}
-        <button 
-          class="cancel-button"
-          onclick={handleCancel}
-          type="button"
-        >
-          취소
-        </button>
+        <button class="cancel-button" onclick={handleCancel} type="button"> 취소 </button>
       {/if}
     </div>
   </div>
@@ -166,12 +155,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.3),
-      transparent
-    );
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
     animation: shimmer 2s infinite;
   }
 

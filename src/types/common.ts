@@ -26,7 +26,7 @@ export interface FollowerItem {
     profileImageUrl?: string;
   };
   followingSince?: string;
-  notifiedAt?: number;
+  notifiedAt?: number | string;
   _id?: string;
 }
 

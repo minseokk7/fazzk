@@ -5,7 +5,7 @@ use crate::websocket::WSManager;
 use axum::{
     extract::Request,
     extract::{Json, State},
-    http::Method,
+    http::{header::ORIGIN, HeaderValue, Method},
     middleware::{self, Next},
     response::{Html, IntoResponse},
     routing::{get, post},
@@ -26,7 +26,7 @@ pub struct ServerState {
     pub ws_manager: WSManager,
 }
 
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 // Request logging middleware
 async fn log_requests(req: Request, next: Next) -> impl IntoResponse {
@@ -54,6 +54,16 @@ async fn log_requests(req: Request, next: Next) -> impl IntoResponse {
     );
 
     response
+}
+
+fn is_allowed_origin(origin: &HeaderValue) -> bool {
+    origin.to_str().is_ok_and(|origin| {
+        origin == "null"
+            || origin.starts_with("http://localhost")
+            || origin.starts_with("http://127.0.0.1")
+            || origin.starts_with("chrome-extension://")
+            || origin.starts_with("moz-extension://")
+    })
 }
 
 pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
@@ -144,10 +154,10 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         ws_manager: ws_manager.clone(),
     };
 
-    let app = Router::new()
+    let mut app = Router::new()
         // API routes first (highest priority) - 더 구체적인 순서로 배치
+        .route("/health", get(get_health))
         .route("/auth/cookies", post(receive_cookies))
-        .route("/cookies", get(get_cookies))
         .route("/settings", get(load_settings).post(save_settings))
         .route("/followers", get(get_followers))
         .route("/test-follower", post(test_follower))
@@ -165,19 +175,27 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
         // Static file serving (public 폴더)
         .nest_service("/public", ServeDir::new(&public_path))
         // Fallback for SPA routing (lowest priority) - 모든 API 라우트 이후에 배치
-        .fallback_service(ServeDir::new(&resource_path))
+        .fallback_service(ServeDir::new(&resource_path));
+
+    if cfg!(debug_assertions) {
+        app = app.route("/cookies", get(get_cookies));
+    }
+
+    let app = app
         .layer(middleware::from_fn(log_requests))
         .layer(
             CorsLayer::new()
-                .allow_origin(tower_http::cors::Any)
+                .allow_origin(AllowOrigin::predicate(|origin, _request_parts| {
+                    is_allowed_origin(origin)
+                }))
                 .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-                .allow_headers(tower_http::cors::Any),
+                .allow_headers([ORIGIN, axum::http::header::CONTENT_TYPE]),
         )
         .with_state(state);
 
     println!("Starting server on port {}", port);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await.unwrap();
     println!("Server listening on {}", addr);
 
@@ -186,7 +204,7 @@ pub async fn start_server(app_state: Arc<AppState>, app_handle: AppHandle) {
 
 async fn find_available_port(start: u16) -> u16 {
     for port in start..start + 100 {
-        if TcpListener::bind(format!("0.0.0.0:{}", port)).await.is_ok() {
+        if TcpListener::bind(format!("127.0.0.1:{}", port)).await.is_ok() {
             return port;
         }
     }
@@ -207,7 +225,8 @@ async fn save_port_info(port: u16) {
     let info_file = std::env::temp_dir().join("fazzk_info.json");
     let info = serde_json::json!({
         "port": port,
-        "obs_url": format!("http://localhost:{}/follower", port),
+        "health_url": format!("http://127.0.0.1:{}/health", port),
+        "obs_url": format!("http://127.0.0.1:{}/follower", port),
         "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
         "pid": std::process::id()
     });
@@ -216,9 +235,21 @@ async fn save_port_info(port: u16) {
         eprintln!("[Server] 정보 파일 저장 실패: {}", e);
     }
 
-    println!("[Server] 🎯 OBS URL: http://localhost:{}/follower", port);
+    println!("[Server] 🎯 OBS URL: http://127.0.0.1:{}/follower", port);
     println!("[Server] 📁 포트 파일: {:?}", port_file);
     println!("[Server] 💡 OBS 자동 연결: scripts/obs-redirector.html 사용");
+}
+
+async fn get_health(State(state): State<ServerState>) -> impl IntoResponse {
+    let port = state.app_state.port.lock().ok().map(|p| *p).unwrap_or_default();
+
+    Json(json!({
+        "app": "fazzk",
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "port": port,
+        "obs_url": format!("http://127.0.0.1:{}/follower", port)
+    }))
 }
 
 // Handler for POST /auth/cookies (from Extension)
@@ -233,35 +264,15 @@ async fn receive_cookies(
         Ok((hash, nickname)) => {
             println!("[Server] Verified User: {} ({})", nickname, hash);
 
-            // 2. Update In-Memory State (AppState)
-            {
-                if let Ok(mut cookies) = state.app_state.cookies.lock() {
-                    *cookies = Some(payload.clone());
-                }
-                if let Ok(mut hash_lock) = state.app_state.user_id_hash.lock() {
-                    *hash_lock = Some(hash.clone());
-                }
-                if let Ok(mut status) = state.app_state.login_status.lock() {
-                    *status = true;
-                }
-            }
-
-            // 3. Save to Persistent Store (session.json)
-            use tauri_plugin_store::StoreExt;
-            if let Ok(store) = state.app_handle.store("session.json") {
-                store.set("NID_AUT", serde_json::json!(payload.nid_aut));
-                store.set("NID_SES", serde_json::json!(payload.nid_ses));
-                // Optional: Save caching info
-                store.set("nickname", serde_json::json!(nickname));
-
-                if let Err(e) = store.save() {
-                    eprintln!("[Server] Failed to save session: {}", e);
-                } else {
-                    println!("[Server] Session saved to store");
-                }
-            } else {
-                eprintln!("[Server] Failed to open Store");
-            }
+            // 2. Update in-memory state and persist the session using the same path as manual login.
+            crate::persist_login_session(
+                &state.app_handle,
+                &state.app_state,
+                payload.clone(),
+                hash.clone(),
+                Some(&nickname),
+            )
+            .map_err(AppError::ConfigError)?;
 
             // 4. Emit event to frontend (Update UI immediately)
             if let Err(e) = state.app_handle.emit(

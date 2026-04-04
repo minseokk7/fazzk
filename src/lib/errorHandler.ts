@@ -49,20 +49,22 @@ export class GlobalErrorHandler {
    * 전역 에러 핸들러 설정
    */
   private setupGlobalHandlers(): void {
-    if (this.isInitialized) return;
+    if (this.isInitialized) {
+      return;
+    }
 
     // JavaScript 런타임 에러
-    window.addEventListener('error', (event) => {
+    window.addEventListener('error', event => {
       this.handleError(event.error || new Error(event.message), {
         filename: event.filename,
         lineno: event.lineno,
         colno: event.colno,
-        type: 'javascript'
+        type: 'javascript',
       });
     });
 
     // Promise rejection 에러
-    window.addEventListener('unhandledrejection', (event) => {
+    window.addEventListener('unhandledrejection', event => {
       this.handleError(
         event.reason instanceof Error ? event.reason : new Error(String(event.reason)),
         { type: 'promise-rejection' }
@@ -73,7 +75,7 @@ export class GlobalErrorHandler {
     window.addEventListener('svelte:error', ((event: CustomEvent) => {
       this.handleError(event.detail.error, {
         component: event.detail.component,
-        type: 'svelte'
+        type: 'svelte',
       });
     }) as EventListener);
 
@@ -86,16 +88,16 @@ export class GlobalErrorHandler {
    */
   handleError(error: Error | ErrorEvent | string, context?: any): string {
     const errorInfo = this.createErrorInfo(error, context);
-    
+
     // 에러 저장
     this.storeError(errorInfo);
-    
+
     // 로깅
     this.logError(errorInfo);
-    
+
     // 사용자 피드백
     this.showUserFeedback(errorInfo);
-    
+
     // 에러 리포팅 (개발 모드에서만)
     if (import.meta.env.DEV) {
       this.reportError(errorInfo);
@@ -119,7 +121,7 @@ export class GlobalErrorHandler {
       userAgent: navigator.userAgent,
       url: window.location.href,
       severity: this.determineSeverity(errorMessage, context),
-      handled: false
+      handled: false,
     };
 
     // 선택적 속성들 조건부 할당
@@ -144,7 +146,7 @@ export class GlobalErrorHandler {
    */
   private determineSeverity(message: string, context?: any): ErrorInfo['severity'] {
     const lowerMessage = message.toLowerCase();
-    
+
     // Critical 에러
     if (lowerMessage.includes('network') && lowerMessage.includes('failed')) {
       return 'critical';
@@ -155,7 +157,7 @@ export class GlobalErrorHandler {
     if (lowerMessage.includes('cannot read') || lowerMessage.includes('undefined')) {
       return 'high';
     }
-    
+
     // High 에러
     if (lowerMessage.includes('api') || lowerMessage.includes('fetch')) {
       return 'high';
@@ -163,12 +165,12 @@ export class GlobalErrorHandler {
     if (context?.type === 'promise-rejection') {
       return 'high';
     }
-    
+
     // Medium 에러
     if (lowerMessage.includes('validation') || lowerMessage.includes('invalid')) {
       return 'medium';
     }
-    
+
     // Low 에러 (기본값)
     return 'low';
   }
@@ -178,7 +180,7 @@ export class GlobalErrorHandler {
    */
   private storeError(errorInfo: ErrorInfo): void {
     this.errors.unshift(errorInfo);
-    
+
     // 최대 개수 제한
     if (this.errors.length > this.maxErrors) {
       this.errors = this.errors.slice(0, this.maxErrors);
@@ -192,7 +194,7 @@ export class GlobalErrorHandler {
     try {
       const recentErrors = this.errors.slice(0, 10).map(err => ({
         ...err,
-        stack: undefined // 스택 트레이스는 저장하지 않음
+        stack: undefined, // 스택 트레이스는 저장하지 않음
       }));
       localStorage.setItem('fazzk-recent-errors', JSON.stringify(recentErrors));
     } catch (e) {
@@ -205,7 +207,7 @@ export class GlobalErrorHandler {
    */
   private logError(errorInfo: ErrorInfo): void {
     const logMessage = `[${errorInfo.severity.toUpperCase()}] ${errorInfo.message}`;
-    
+
     switch (errorInfo.severity) {
       case 'critical':
         log.error(logMessage, errorInfo);
@@ -228,7 +230,7 @@ export class GlobalErrorHandler {
   private showUserFeedback(errorInfo: ErrorInfo): void {
     // 중복 에러 방지 (같은 에러가 1초 내에 발생하면 무시)
     const now = Date.now();
-    
+
     if (now - this.lastErrorTime < 1000) {
       return;
     }
@@ -243,22 +245,15 @@ export class GlobalErrorHandler {
           true // persistent
         );
         break;
-        
+
       case 'high':
-        toastManager.error(
-          '오류 발생',
-          '일부 기능이 제대로 작동하지 않을 수 있습니다.',
-          false
-        );
+        toastManager.error('오류 발생', '일부 기능이 제대로 작동하지 않을 수 있습니다.', false);
         break;
-        
+
       case 'medium':
-        toastManager.warning(
-          '경고',
-          '예상치 못한 문제가 발생했습니다.'
-        );
+        toastManager.warning('경고', '예상치 못한 문제가 발생했습니다.');
         break;
-        
+
       case 'low':
         // Low 에러는 사용자에게 표시하지 않음
         break;
@@ -292,13 +287,14 @@ export class GlobalErrorHandler {
     const now = Date.now();
     const recentErrors = this.errors.filter(err => now - err.timestamp < this.errorRateWindow);
     const criticalErrors = this.errors.filter(err => err.severity === 'critical').length;
-    
+
     // 공통 에러 분석
     const commonErrors = Array.from(this.errorCounts.entries())
       .map(([message, count]) => ({
         message,
         count,
-        lastOccurred: this.errors.find(err => this.getErrorKey(err.message) === message)?.timestamp || 0
+        lastOccurred:
+          this.errors.find(err => this.getErrorKey(err.message) === message)?.timestamp || 0,
       }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
@@ -307,7 +303,7 @@ export class GlobalErrorHandler {
       totalErrors: this.errors.length,
       criticalErrors,
       errorRate: (recentErrors.length / this.errorRateWindow) * 60000, // 에러/분
-      commonErrors
+      commonErrors,
     };
 
     // 선택적 속성 조건부 할당
@@ -348,7 +344,11 @@ export class GlobalErrorHandler {
   /**
    * 수동 에러 리포트 (컴포넌트에서 사용)
    */
-  reportManualError(message: string, context?: any, severity: ErrorInfo['severity'] = 'medium'): string {
+  reportManualError(
+    message: string,
+    context?: any,
+    severity: ErrorInfo['severity'] = 'medium'
+  ): string {
     const error = new Error(message);
     return this.handleError(error, { ...context, manual: true, severity });
   }

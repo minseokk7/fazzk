@@ -1,5 +1,5 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
 
   export let items = [];
   export let itemHeight = 60; // 각 아이템의 고정 높이
@@ -30,8 +30,8 @@
   });
 </script>
 
-<div 
-  class="virtual-list-container" 
+<div
+  class="virtual-list-container"
   style="height: {containerHeight}px; overflow-y: auto;"
   bind:this={scrollContainer}
   bind:clientWidth={containerWidth}
@@ -54,7 +54,7 @@
     position: relative;
     overflow-y: auto;
   }
-  
+
   .virtual-item {
     display: flex;
     align-items: center;

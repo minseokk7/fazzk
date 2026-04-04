@@ -55,6 +55,42 @@ fn update_login_state(
     Ok(())
 }
 
+/// 세션 쿠키를 영속 저장합니다.
+pub(crate) fn persist_session_cookies(
+    app: &tauri::AppHandle,
+    cookie_data: &state::CookieData,
+    nickname: Option<&str>,
+) -> Result<(), String> {
+    let store = app
+        .store("session.json")
+        .map_err(|e| format!("Store 열기 실패: {}", e))?;
+
+    store.set("NID_AUT", serde_json::json!(cookie_data.nid_aut));
+    store.set("NID_SES", serde_json::json!(cookie_data.nid_ses));
+
+    if let Some(nickname) = nickname {
+        store.set("nickname", serde_json::json!(nickname));
+    }
+
+    store
+        .save()
+        .map_err(|e| format!("Store 저장 실패: {}", e))?;
+
+    Ok(())
+}
+
+/// 로그인 상태와 세션 저장을 함께 처리합니다.
+pub(crate) fn persist_login_session(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    cookie_data: state::CookieData,
+    user_id_hash: String,
+    nickname: Option<&str>,
+) -> Result<(), String> {
+    update_login_state(state, cookie_data.clone(), user_id_hash)?;
+    persist_session_cookies(app, &cookie_data, nickname)
+}
+
 /// 앱 시작 시 저장된 쿠키를 로드하고 검증합니다.
 #[tauri::command]
 async fn check_auto_login(
@@ -137,18 +173,8 @@ async fn save_cookies(
     nid_ses: String,
 ) -> Result<(), String> {
     println!("[Command] save_cookies called");
-
-    let store = app
-        .store("session.json")
-        .map_err(|e| format!("Store 열기 실패: {}", e))?;
-
-    store.set("NID_AUT", serde_json::json!(nid_aut));
-    store.set("NID_SES", serde_json::json!(nid_ses));
-
-    store
-        .save()
-        .map_err(|e| format!("Store 저장 실패: {}", e))?;
-
+    let cookie_data = state::CookieData { nid_aut, nid_ses };
+    persist_session_cookies(&app, &cookie_data, None)?;
     println!("[Command] Cookies saved successfully");
     Ok(())
 }
@@ -192,8 +218,14 @@ async fn manual_login(
         Ok((user_id_hash, nickname)) => {
             println!("[Command] Login verified: {} ({})", nickname, user_id_hash);
 
-            // 2. Update Global State
-            update_login_state(&state, cookie_data, user_id_hash.clone())?;
+            // 2. Update Global State + persist session
+            persist_login_session(
+                &app,
+                &state,
+                cookie_data,
+                user_id_hash.clone(),
+                Some(&nickname),
+            )?;
 
             // 3. Emit Success Event
             use tauri::Emitter;
@@ -289,7 +321,7 @@ pub fn run() {
                                 std::fs::read_to_string(std::env::temp_dir().join("fazzk_port.txt"))
                             {
                                 if let Ok(port) = content.trim().parse::<u16>() {
-                                    let url = format!("http://localhost:{}/follower", port);
+                                    let url = format!("http://127.0.0.1:{}/follower", port);
                                     let _ =
                                         arboard::Clipboard::new().and_then(|mut c| c.set_text(url));
                                 }
@@ -392,117 +424,12 @@ async fn ensure_scripts_folder() -> Result<(), String> {
         log::info!("scripts 폴더 생성됨: {:?}", scripts_dir);
     }
 
-    // obs-redirector.html 파일 생성
+    // obs-redirector.html 파일을 단일 소스(template file) 기준으로 항상 동기화
     let redirector_file = scripts_dir.join("obs-redirector.html");
-    if !redirector_file.exists() {
-        let redirector_content = r#"<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fazzk OBS 리다이렉터</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            background: transparent;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #ffffff;
-            text-align: center;
-        }
-        .loading {
-            font-size: 16px;
-            opacity: 0.8;
-        }
-        .error {
-            color: #ff6b6b;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-    </style>
-</head>
-<body>
-    <div class="loading">Fazzk 서버 연결 중...</div>
-    <div id="error" class="error" style="display: none;"></div>
-
-    <script>
-        console.log('[OBS Redirector] 시작됨');
-        
-        // 포트 정보 파일에서 동적 포트 읽기
-        async function getServerPort() {
-            try {
-                // 임시 폴더에서 포트 정보 읽기
-                const tempDir = navigator.platform.includes('Win') ? 
-                    'C:/Users/' + (navigator.userAgent.match(/Windows NT.*?(\w+)/)?.[1] || 'USER') + '/AppData/Local/Temp/' :
-                    '/tmp/';
-                
-                const portFile = tempDir + 'fazzk_port.txt';
-                const infoFile = tempDir + 'fazzk_info.json';
-                
-                // 여러 방법으로 포트 정보 시도
-                const methods = [
-                    () => fetch('file://' + infoFile).then(r => r.json()).then(data => data.port),
-                    () => fetch('file://' + portFile).then(r => r.text()).then(port => parseInt(port.trim())),
-                    () => Promise.resolve(3001), // 기본 포트
-                ];
-                
-                for (const method of methods) {
-                    try {
-                        const port = await method();
-                        if (port && port > 1000 && port < 65536) {
-                            console.log('[OBS Redirector] 포트 발견:', port);
-                            return port;
-                        }
-                    } catch (e) {
-                        console.log('[OBS Redirector] 포트 방법 실패:', e.message);
-                    }
-                }
-                
-                return 3001; // 최종 폴백
-            } catch (e) {
-                console.error('[OBS Redirector] 포트 읽기 실패:', e);
-                return 3001;
-            }
-        }
-        
-        // 서버 연결 및 리다이렉트
-        async function connectToServer() {
-            try {
-                const port = await getServerPort();
-                const serverUrl = `http://localhost:${port}/follower`;
-                
-                console.log('[OBS Redirector] 서버 URL:', serverUrl);
-                
-                // 서버 연결 테스트
-                const response = await fetch(`http://localhost:${port}/settings`);
-                if (response.ok) {
-                    console.log('[OBS Redirector] 서버 연결 성공, 리다이렉트 중...');
-                    window.location.href = serverUrl;
-                } else {
-                    throw new Error(`서버 응답 오류: ${response.status}`);
-                }
-            } catch (error) {
-                console.error('[OBS Redirector] 연결 실패:', error);
-                document.querySelector('.loading').style.display = 'none';
-                const errorDiv = document.getElementById('error');
-                errorDiv.style.display = 'block';
-                errorDiv.textContent = `서버 연결 실패: ${error.message}`;
-                
-                // 3초 후 재시도
-                setTimeout(connectToServer, 3000);
-            }
-        }
-        
-        // 페이지 로드 시 연결 시도
-        connectToServer();
-    </script>
-</body>
-</html>"#;
-
-        std::fs::write(&redirector_file, redirector_content)
-            .map_err(|e| format!("obs-redirector.html 파일 생성 실패: {}", e))?;
-        log::info!("obs-redirector.html 파일 생성됨: {:?}", redirector_file);
-    }
+    let redirector_content = include_str!("../../scripts/obs-redirector.html");
+    std::fs::write(&redirector_file, redirector_content)
+        .map_err(|e| format!("obs-redirector.html 파일 생성 실패: {}", e))?;
+    log::info!("obs-redirector.html 파일 동기화 완료: {:?}", redirector_file);
 
     Ok(())
 }

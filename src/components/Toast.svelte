@@ -1,8 +1,8 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  
+
   export let toast;
-  
+
   const dispatch = createEventDispatcher();
   let toastElement;
   let isVisible = false;
@@ -13,7 +13,7 @@
     success: '✅',
     error: '❌',
     warning: '⚠️',
-    info: 'ℹ️'
+    info: 'ℹ️',
   };
 
   // 토스트 타입별 색상 클래스
@@ -21,7 +21,7 @@
     success: 'toast-success',
     error: 'toast-error',
     warning: 'toast-warning',
-    info: 'toast-info'
+    info: 'toast-info',
   };
 
   onMount(() => {
@@ -33,10 +33,10 @@
 
   function handleClose() {
     if (isRemoving) return;
-    
+
     isRemoving = true;
     isVisible = false;
-    
+
     // 애니메이션 완료 후 제거
     setTimeout(() => {
       dispatch('remove', toast.id);
@@ -56,7 +56,7 @@
   }
 </script>
 
-<div 
+<div
   bind:this={toastElement}
   class="toast {typeClasses[toast.type]}"
   class:visible={isVisible}
@@ -64,22 +64,23 @@
   role="alert"
   aria-live="polite"
 >
-  <div class="toast-content" 
-       role="button" 
-       tabindex="0"
-       onclick={handleClick}
-       onkeydown={(e) => {
-         if (e.key === 'Enter' || e.key === ' ') {
-           e.preventDefault();
-           handleClick();
-         }
-       }}
-       aria-label={toast.persistent ? toast.title : `${toast.title} - 클릭하여 닫기`}
+  <div
+    class="toast-content"
+    role="button"
+    tabindex="0"
+    onclick={handleClick}
+    onkeydown={e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleClick();
+      }
+    }}
+    aria-label={toast.persistent ? toast.title : `${toast.title} - 클릭하여 닫기`}
   >
     <div class="toast-icon">
       {icons[toast.type]}
     </div>
-    
+
     <div class="toast-body">
       <div class="toast-title">{toast.title}</div>
       {#if toast.message}
@@ -88,9 +89,9 @@
     </div>
 
     {#if !toast.persistent}
-      <button 
-        class="toast-close" 
-        onclick={(e) => {
+      <button
+        class="toast-close"
+        onclick={e => {
           e.stopPropagation();
           handleClose();
         }}
@@ -103,10 +104,10 @@
 
   {#if toast.actions && toast.actions.length > 0}
     <div class="toast-actions">
-      {#each toast.actions as action}
-        <button 
+      {#each toast.actions as action (`${action.label}-${action.style || 'secondary'}`)}
+        <button
           class="toast-action {action.style || 'secondary'}"
-          onclick={(e) => {
+          onclick={e => {
             e.stopPropagation();
             handleAction(action);
           }}
@@ -274,11 +275,11 @@
     .toast {
       transition: opacity 0.2s ease;
     }
-    
+
     .toast.visible {
       transform: none;
     }
-    
+
     .toast.removing {
       transform: none;
     }
@@ -292,11 +293,11 @@
       margin-left: 16px;
       margin-right: 16px;
     }
-    
+
     .toast-content {
       padding: 12px;
     }
-    
+
     .toast-actions {
       padding: 0 12px 12px 12px;
     }

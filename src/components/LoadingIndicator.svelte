@@ -8,14 +8,14 @@
   import LoadingOverlay from './LoadingOverlay.svelte';
 
   // Props
-  let { 
+  let {
     position = 'top-right', // 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'
     showOverlay = false, // 전체 화면 오버레이 표시 여부
     maxVisible = 3, // 최대 표시할 로딩 상태 수
     autoHide = true, // 로딩이 없을 때 자동 숨김
     showProgress = true, // 진행률 표시 여부
     showCancel = true, // 취소 버튼 표시 여부
-    compact = false // 컴팩트 모드
+    compact = false, // 컴팩트 모드
   } = $props();
 
   // State
@@ -31,7 +31,7 @@
     'top-right': 'top-right',
     'bottom-left': 'bottom-left',
     'bottom-right': 'bottom-right',
-    'center': 'center'
+    center: 'center',
   };
 
   // 표시할 로딩 상태들 (우선순위 및 개수 제한)
@@ -40,7 +40,9 @@
   let shouldShow = $derived(hasLoading && (!autoHide || visible));
 
   // 오버레이용 주요 로딩 상태
-  let primaryLoading = $derived(loadingStates.find(state => state.priority === 'high') || loadingStates[0]);
+  let primaryLoading = $derived(
+    loadingStates.find(state => state.priority === 'high') || loadingStates[0]
+  );
 
   // 컴포넌트 마운트
   onMount(() => {
@@ -51,7 +53,7 @@
         window.DIRECT_NOTIFIER_MODE ||
         document.body?.classList.contains('obs-mode')
       );
-      
+
       if (isOBSMode) {
         // OBS 모드에서는 모든 로딩 상태 강제 제거
         loadingStates = [];
@@ -68,33 +70,33 @@
     const obsCheckInterval = setInterval(checkOBSMode, 100);
 
     // 로딩 상태 리스너 등록
-    removeListener = loadingManager.addListener((states) => {
+    removeListener = loadingManager.addListener(states => {
       // OBS 모드 재확인
       const isOBSMode = !!(
         window.OBS_MODE ||
         window.DIRECT_NOTIFIER_MODE ||
         document.body?.classList.contains('obs-mode')
       );
-      
+
       if (isOBSMode) {
         loadingStates = [];
         visible = false;
         console.log('[LoadingIndicator] OBS mode - ignoring loading states');
         return;
       }
-      
+
       loadingStates = states;
       visible = states.length > 0;
     });
 
     // 통계 리스너 등록
-    removeStatsListener = loadingManager.addStatsListener((newStats) => {
+    removeStatsListener = loadingManager.addStatsListener(newStats => {
       const isOBSMode = !!(
         window.OBS_MODE ||
         window.DIRECT_NOTIFIER_MODE ||
         document.body?.classList.contains('obs-mode')
       );
-      
+
       if (!isOBSMode) {
         stats = newStats;
       }
@@ -137,7 +139,7 @@
 
 <!-- 일반 로딩 인디케이터 -->
 {#if shouldShow && !showOverlay}
-  <div 
+  <div
     class="loading-indicator {positionClasses[position]}"
     class:compact
     role="status"
@@ -151,11 +153,7 @@
             {loadingStates.length}개 작업 진행 중
           </span>
           {#if stats && showCancel}
-            <button 
-              class="cancel-all-btn"
-              onclick={cancelAllLoading}
-              title="모든 작업 취소"
-            >
+            <button class="cancel-all-btn" onclick={cancelAllLoading} title="모든 작업 취소">
               모두 취소
             </button>
           {/if}
@@ -168,17 +166,14 @@
           <div class="loading-item" class:high-priority={state.priority === 'high'}>
             <div class="item-content">
               <!-- 스피너 -->
-              <LoadingSpinner 
-                size={compact ? 'small' : 'medium'} 
-                color="primary"
-              />
-              
+              <LoadingSpinner size={compact ? 'small' : 'medium'} color="primary" />
+
               <!-- 정보 -->
               <div class="item-info">
                 <div class="item-message" title={state.message}>
                   {state.message}
                 </div>
-                
+
                 {#if !compact}
                   <div class="item-meta">
                     <span class="item-duration">
@@ -197,7 +192,7 @@
               {#if showProgress && state.progress !== undefined}
                 <div class="item-progress">
                   <div class="progress-bar">
-                    <div 
+                    <div
                       class="progress-fill"
                       style="width: {isNaN(state.progress) ? 0 : state.progress}%"
                     ></div>
@@ -210,11 +205,7 @@
 
               <!-- 취소 버튼 -->
               {#if showCancel && state.cancellable}
-                <button 
-                  class="cancel-btn"
-                  onclick={() => cancelLoading(state.id)}
-                  title="취소"
-                >
+                <button class="cancel-btn" onclick={() => cancelLoading(state.id)} title="취소">
                   ✕
                 </button>
               {/if}
@@ -551,8 +542,8 @@
   }
 
   /* 추가적인 OBS 모드 숨김 처리 */
-  :global(body[class*="obs"]) .loading-indicator,
-  :global(html[data-obs-mode="true"]) .loading-indicator {
+  :global(body[class*='obs']) .loading-indicator,
+  :global(html[data-obs-mode='true']) .loading-indicator {
     display: none !important;
   }
 </style>
